@@ -41,6 +41,23 @@ pip install pillow lxml beautifulsoup4 playwright
   scripts/        # 质量门与工具脚本（Python 3.10+）
 ```
 
+## 新增技能
+
+仓库会持续收录新技能，收录流程：
+
+1. 把技能目录（含 `SKILL.md`、`references/`、`scripts/`）拷到仓库根目录；
+2. 在上方技能清单表格里加一行：技能名链接到其 `SKILL.md`，一句话写清用途；
+3. 检查目录内无内部路径、密钥、临时产物（`__pycache__`、`.work/` 等）；
+4. 提交并推送：
+
+```bash
+git add <skill-name>/ README.md
+git commit -m "Add <skill-name> skill"
+git push origin main
+```
+
+技能的编写规范见 [skill-craft](skill-craft/SKILL.md)。
+
 ## License
 
 [MIT](LICENSE)

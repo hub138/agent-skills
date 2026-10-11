@@ -158,11 +158,11 @@
 
 mermaid 是默认自绘工具：快、手写、源码在文章里可直接改。mermaid 表达不下的形态——泳道化流程、多级泳道的主干路径、带降级旁路的治理链路、分阶段合流的数据流——升级用 archify 精绘：它把图写成类型化 JSON，经 schema 与构图校验后渲染成独立 HTML/SVG，标签重叠、走廊共用、对角线、字号过小这些问题由校验器直接报出来，比肉眼返工快。
 
-- 工具位置：`<仓库>/projects/archify/archify/bin/archify.mjs`（本仓库实例在 `skills/knowledge-site/technical-knowledge/projects/archify/archify/`）；有 `guide`（场景选型）、`validate`、`deliver` 三个常用子命令，schema 与示例在同级 `schemas/`、`examples/`。
+- 工具位置：archify 的可执行文件为 `bin/archify.mjs`（npm 工程根目录下）；有 `guide`（场景选型）、`validate`、`deliver` 三个常用子命令，schema 与示例在同级 `schemas/`、`examples/`。
 - 选型：组件与分层用 architecture，流程与泳道用 workflow，调用链用 sequence，管道与汇流用 dataflow，状态机用 lifecycle；拿不准跑 `node bin/archify.mjs guide "<场景>" --json`。
 - 作图流程：读一个匹配的 schema 加一个示例 → 手写候选 JSON（`meta.quality_profile` 必须写 `"showcase"`，工作流新图用 `schema_version: 2`）→ `validate` 修到零错误 → `deliver` 出 HTML。showcase 通过要求全部 9 项检查、0 错误 0 警告，未达标的交付不算成功。
 - 布局修复靠诊断不靠肉眼：`layout/constraint` 报标签重叠就 `labelAt` 错开或加宽 `width`；`composition/ambiguous-corridor` 报两条边共用走廊就换起点或删边重连；`artifact/orthogonal-arrows` 报对角线就给跨行边加 `route: top-channel/bottom-channel`。手工 `via` 在 v2 工作流里约束极多（正交、端点方向、互穿都要对），优先让求解器自选路线，两次手工修复仍报错就改图的结构（挪列、换 lane、改边起点）。
-- 入文形态：deliver 出的 HTML 里内嵌着成品 SVG（依赖 186KB 的 CSS 变量，不能直接抄），用「抽 SVG + 解析浅色主题变量 + 内联命中的 CSS 规则」的导出脚本转成独立 `.svg` 放进站点图床（本仓库 `$KNOWLEDGE_REPO/site/figures/`，先 curl 确认 200 再改文章链接）。SVG `viewBox` 宽度压在 1000 内，1440px 视口下正文缩放后文字不小于 6px（校验器会以 `composition/desktop-readability` 把关）。
+- 入文形态：deliver 出的 HTML 里内嵌着成品 SVG（依赖 186KB 的 CSS 变量，不能直接抄），用「抽 SVG + 解析浅色主题变量 + 内联命中的 CSS 规则」的导出脚本转成独立 `.svg` 放进站点静态图床，再改文章链接指向它（先 curl 确认 200 再改链接）。SVG `viewBox` 宽度压在 1000 内，1440px 视口下正文缩放后文字不小于 6px（校验器会以 `composition/desktop-readability` 把关）。
 - 验收：图页与 mermaid 同规——文章页等 `<img>` complete 且 `naturalWidth > 0`，逐张截图过目；archify 自带 `visual-check` 需要真实浏览器，可代替人眼看布局，但文章页嵌入效果仍要自己截。
 - 何时不用：图结构一改再改、每次只动一两个标签的场景留在 mermaid（archify 的 JSON 与校验循环更重）；四类形态以外不要为用而用。
 
