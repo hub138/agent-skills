@@ -1,0 +1,62 @@
+# stock-guardian（股票管家）
+
+适配任意用户的个人持仓监控与纪律执行 skill。行情双源：优先 westock-data，未安装时自动降级公开源（腾讯财经 qt.gtimg.cn，零密钥零账号），A股/港股/美股开箱即用。
+
+## 它做什么
+
+- **档案化**：你的持仓、成本、规则线（跌破哪卖/涨到哪减/哪天必须动）、监控宇宙、沟通偏好，全部落盘在 `$HOME/.stock-guardian/portfolio.md`
+- **监控宇宙推理**：根据你的持仓自动推理该盯哪些海外市场标的（产业链映射/同行映射/宏观汇率/ETF成分穿透），每条都写明"为什么盯它"
+- **定时通知**：早报、午间、尾盘、美股开盘/半场/收盘三报、亚太早巡，无触发一句话报平安
+- **纪律执行**：所有建议对照你自己的规则线给预案（"如果到 X 就 Y"），不猜涨跌
+- **市场荐股（纯市场视角）**：说"推荐几只票/有什么好票"就进入——不读你的档案、不提你的仓位，先断市场状态定方向（退潮防守/主升进攻/震荡结构），再用 westock-tool 筛选、westock-data 补证据，每票带"为什么+胜负手+作废线"；你给了条件就按你的来，没给就 AI 当场从盘面现推，不套历史规则（荐股/筛选需另装 westock-tool）
+- **跨场景动态档案（day file）**：每个定时任务都是独立会话，互相看不见——day file 让 10 点画的箱体 11:45 还在、尾盘知道早盘的做T方案、早报接得住凌晨美股结论。每个场景"读衔接 → 干活 → 落档"闭环，`$HOME/.stock-guardian/day/` 下按日存档、35 天自动清理，`scripts/day-log.sh` 五个子命令（read/append/list/box/plan）
+- **两层警报线**：静态线（watch.conf，与档案"盘中警报线"同源，`scripts/check-sync.sh` 自检漂移）+ 动态线（当日箱体，箱体确认任务画完自动生成"突破上沿/跌破下沿"规则并附每票白话动作 PLAN 行——触发时把"该怎么办"原样推给你，watchdog 分钟级盯，每天随箱体重画自动更新）
+
+## 行情数据源（双源）
+
+| 源 | 何时用 | 覆盖 | 说明 |
+| --- | --- | --- | --- |
+| westock-data | 安装了就用它（默认） | A股/美股/日韩/ETF/汇率 + K线/新闻/公告/财报 | 全字段行情源；需 node≥18 |
+| 公开源适配器 | westock-data 缺席时自动降级 | A股(sh/sz/bj)/港股(hk)/美股(us) 实时行情 | 腾讯财经公开接口 qt.gtimg.cn，零密钥零账号零注册，纯 bash+curl+awk；汇率/日韩/新闻/公告/K线不支持 |
+
+两个源输出同格式表格，watch/monitor 等脚本零改动兼容。想恢复全字段能力就装 westock-data，装好后自动切回，无需改配置。
+
+## 通知渠道（webhook 机器人）
+
+`$HOME/.stock-guardian/webhook.env` 填一个 `WECHAT_WEBHOOK_URL='...'` 即可启用推群通知，四种渠道任选：
+
+- 企微群机器人（`https://qyapi.weixin.qq.com/...`）
+- 钉钉群机器人（`https://oapi.dingtalk.com/...`，加签密钥另配一行 `DINGTALK_SECRET='...'`）
+- 飞书群机器人（`https://open.feishu.cn/...`）
+- Bark iOS 推送（`https://api.day.app/...`）
+
+发送器按 URL 特征自动选消息格式（企微/飞书走富文本，钉钉/Bark 走纯文本）。不配置则全部通知只走对话回执，一切照常。
+
+## 安装
+
+1. 把本目录放到 skills 目录（与其他 skill 同级）
+2. 依赖预检：`bash scripts/check-deps.sh`——必需项（curl、awk）全 ✅ 才能初始化。westock-data / westock-tool / node 缺失只提示不拦截：行情自动降级公开源（荐股场景需 westock-tool，装不了就不用荐股功能）
+3. 初始化：`mkdir -p ~/.stock-guardian && cp references/portfolio.template.md ~/.stock-guardian/portfolio.md`，然后直接和 AI 说"我要用股票管家"——AI 只问事实（持仓/成本/总资产）加一句风格倾向，纪律参数按"风格速配表"自动推荐整套给你一句话确认；群机器人 webhook 当场发测试消息验证；通知节奏给基础/全量两个套餐选。全部确认后建档案、推理监控宇宙、发"初始化完成"
+4. 验证：`./scripts/monitor.sh` 无参运行应能读到你的档案；没档案会打印初始化指引
+
+## 验证脱敏
+
+skill 目录内零用户数据。发给任何人前可自查：
+
+```bash
+grep -r "你的股票代码/持仓名" 本目录/
+# 零命中 = 干净，可整体 zip 分发
+```
+
+用户数据永远只在 `$HOME/.stock-guardian/`，与本目录无关。
+
+## 依赖
+
+- 必需：curl + awk（公开源行情与通知的最小依赖，任何 Linux/macOS 默认都有）
+- 建议：westock-data（全字段行情：K线/新闻/公告/财报/汇率；`WESTOCK` 环境变量可覆盖路径）、westock-tool（选股筛选；`WESTOCK_TOOL` 可覆盖）、node ≥ 18（westock 系依赖）
+- 系统 cron 定时任务（由宿主 AI 平台管理，装好后和 AI 说"按 stock-guardian 的节奏设通知"即可）
+- 七个脚本全在 `scripts/`：monitor.sh（批量行情拆批）、notify-webhook.sh（多渠道群通知）、watch.sh（分钟级 watchdog）、day-log.sh（跨场景动态档案）、check-sync.sh（警报线同源自检）、check-deps.sh（依赖预检/环境诊断）、quote-public.sh（公开源行情适配器）
+
+## 声明
+
+本工具只做监控参照与纪律提醒，不构成投资建议，决策由用户拍板。行情数据来自腾讯财经公开接口（qt.gtimg.cn，非官方开放接口，无稳定性承诺），仅供个人研究使用；高频调用可能触发限流，商用需购买授权数据源。
