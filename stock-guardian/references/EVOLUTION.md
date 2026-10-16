@@ -6,18 +6,19 @@
 
 | 用途 | 路径 |
 |---|---|
-| skill 根目录 | `/root/.agent/skills/stock-guardian` |
-| 主文件（工作流+输出铁律） | `/root/.agent/skills/stock-guardian/SKILL.md` |
-| 规则主体（27 节纪律体系） | `/root/.agent/skills/stock-guardian/references/rules.md` |
-| 定时任务配方（12 任务模板） | `/root/.agent/skills/stock-guardian/references/cron-recipe.md` |
-| 持仓档案模板（用户数据落这里，绝不进 skill） | `/root/.agent/skills/stock-guardian/references/portfolio.template.md` |
-| 票性仪表盘（统计画像脚本） | `/root/.agent/skills/stock-guardian/scripts/stock-behavior.js` |
-| 分钟级看门狗 | `/root/.agent/skills/stock-guardian/scripts/watch.sh` |
-| 行情拉取 | `/root/.agent/skills/stock-guardian/scripts/monitor.sh` / `quote-public.sh` |
-| 企微群推送 | `/root/.agent/skills/stock-guardian/scripts/notify-webhook.sh` |
-| 当日档案落档 | `$HOME/.stock-guardian/day/YYYY-MM-DD.md`（经 `day-log.sh`；`/root/.stock-guardian/` 是 root 用户的 $HOME 实例，非 root 机器上以 $HOME 为准，可用 PORTFOLIO 环境变量覆盖档案位置） |
+| skill 根目录 | `<你的 skills 目录>/stock-guardian`（下同，全部路径以 skill 根目录为基准） |
+| 主文件（工作流+输出铁律） | `<skill 根目录>/SKILL.md` |
+| 规则主体（28 节纪律体系） | `<skill 根目录>/references/rules.md` |
+| 定时任务配方（14 任务模板） | `<skill 根目录>/references/cron-recipe.md` |
+| 持仓档案模板（用户数据落这里，绝不进 skill） | `<skill 根目录>/references/portfolio.template.md` |
+| 票性仪表盘（统计画像脚本） | `<skill 根目录>/scripts/stock-behavior.js` |
+| 荐股台账（推荐验证长期记录） | `scripts/picks-log.sh` → `$HOME/.stock-guardian/picks.md`（长期保留永不清理；属用户数据，绝不进 skill） |
+| 分钟级看门狗 | `<skill 根目录>/scripts/watch.sh` |
+| 行情拉取 | `<skill 根目录>/scripts/monitor.sh` / `quote-public.sh` |
+| 企微群推送 | `<skill 根目录>/scripts/notify-webhook.sh` |
+| 当日档案落档 | `$HOME/.stock-guardian/day/YYYY-MM-DD.md`（经 `day-log.sh`；`$HOME/.stock-guardian/` 为档案目录（$HOME 口径，可用 PORTFOLIO 环境变量覆盖），可用 PORTFOLIO 环境变量覆盖档案位置） |
 | 用户真实档案（私有，不在 skill 内） | `$HOME/.stock-guardian/portfolio.md`（同上，$HOME 口径 + PORTFOLIO 覆盖） |
-| 发布脚本 | `/root/.agent/skills/skill-creator-for-knot/scripts/publish_skill.py` |
+| 发布脚本 | 你所用技能市场或渠道自己的发布工具（本仓库为纯开源版，不含内部发布链路） |
 
 ## 二、这个 skill 是怎么变成现在这样的（批评→规则映射）
 
@@ -36,6 +37,7 @@
 | "周五隔着周末呢" | 周五协议：注码减半管新仓不管存量、14:30 后只先卖后买、周一双分支预案 |
 | "我说啥才加啥，窟窿补不完" | 反补丁模式：每次大改版前用外部框架自顶向下扫描（见下） |
 | "你是内行自己专业起来" | 情绪周期四档、供给冲击四事件、竞价预读、赔率先行、证伪优先、规则冲突裁决表、月度归因、机会成本排序 |
+| "每天找个时间推荐票 + 第二天验证 + 历史落盘优化思路，独立于我的仓位" | 荐股台账与验证闭环（rules.md）：picks.md 长期台账（PICK/VERDICT/INSIGHT 三行制）+ 16:00 盘后荐股 + 16:15 验证对账（四态落判+归因纪律+连续错熔断+周五思路复盘），全程纯市场视角不读用户档案 |
 
 ## 三、自顶向下审计方法论（反补丁模式的核心）
 
@@ -57,10 +59,10 @@
 ## 五、加强时的操作规程（改→验→发→同步）
 
 1. 改前通读 `rules.md` 相关节 + 规则冲突裁决表，新节插入注意锚点（用 grep 定位章节标题）。
-2. 逻辑层铁律：**零用户数据**——真实票名、价位、金额、份数、券商名、用户原话里的持仓信息一律不进 skill 目录；数字只进 `/root/.stock-guardian/portfolio.md`。改完必须按**档案实时内容**构建关键词表跑脱敏扫描（扫描前先读一遍 portfolio.md，把其中每个票名、代码、券商名、全部价位数字、金额、份数收进词表），可复跑命令模板：`grep -rnE "<票名1>|<票名2>|<代码>|<券商名>|<价位>|<金额>|<份数>" /root/.agent/skills/stock-guardian/`——**词表取自档案而非固定清单**，档案换了票这条自动跟着变；零命中才算过，命中即改写为泛化表述（某强势票/某加仓带/某亏损题材股），教训结构保留。历史教训：固定词表两次漏扫（第一次漏票名、第二次漏价位带），根因都是没从档案现提词表。
+2. 逻辑层铁律：**零用户数据**——真实票名、价位、金额、份数、券商名、用户原话里的持仓信息一律不进 skill 目录；数字只进 `$HOME/.stock-guardian/portfolio.md`。改完必须按**档案实时内容**构建关键词表跑脱敏扫描（扫描前先读一遍 portfolio.md，把其中每个票名、代码、券商名、全部价位数字、金额、份数收进词表），可复跑命令模板：`grep -rnE "<票名1>|<票名2>|<代码>|<券商名>|<价位>|<金额>|<份数>" <你的 skill 根目录>`——**词表取自档案而非固定清单**，档案换了票这条自动跟着变；零命中才算过，命中即改写为泛化表述（某强势票/某加仓带/某亏损题材股），教训结构保留。历史教训：固定词表两次漏扫（第一次漏票名、第二次漏价位带），根因都是没从档案现提词表。
 3. 验证：`bash -n scripts/*.sh`、`node --check scripts/stock-behavior.js`、`check-sync.sh`（核对 watch.conf 每条警报线价格是否与 portfolio.md 同源，输出 OK/DRIFT）。
-4. 发布 Knot 市场：`python3 /root/.agent/skills/skill-creator-for-knot/scripts/publish_skill.py --skill-id 78595 --change-message "<一句话>" /root/.agent/skills/stock-guardian`（凭据走 KNOT_JWT_TOKEN/KNOT_USERNAME 环境变量，勿手写 curl）。
-5. GitHub 同步：先改本机版验证通过，再把 skill 全量拷贝到 `/data/code/agent-skills/stock-guardian/`（hub138/agent-skills 仓库，main 分支）commit + push。**同步前脱敏**：本手册与本目录内出现的内部平台路径（skill-creator-for-knot）、环境变量名（KNOT_JWT_TOKEN）、市场 ID（78595）不进公开版，公开版读者没有这些内部环境。
+4. 发布技能市场：用你所用平台自己的发布工具与凭据体系（公开版不内置任何发布链路）。
+5. 多副本同步：先改在用版验证通过，再拷贝到你的开源仓库目录 commit + push。**同步前脱敏**：内部平台路径、环境变量名、市场 ID 不进公开版，公开版读者没有这些内部环境。
 6. 线上同步：改了 `cron-recipe.md` 模板后，必须把对应线上 cron 任务的 jobMessage 同步更新，否则下次按配方重建会静默丢单条。
 7. 落档：day file 记录改了什么+为什么；重大方法论变化写入长期记忆。
 
