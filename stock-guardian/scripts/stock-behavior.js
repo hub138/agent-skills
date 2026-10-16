@@ -10,10 +10,11 @@
 //                    同向天数占比，供"同向占比>80% 统计判据"复算
 // 输出（每票一段）：
 //   1. 日线性格：高开低走率 / 低开高走率 / 阳线率 / 平均振幅（T 票资格）
-//   2. 相对强度：RS>0 天数占比、大盘跌日 RS>0 天数（逆势/抗跌天数）、RS 5 日均值
+//   2. 相对强度：RS>0 天数占比、大盘跌日 RS>0 天数（逆势/抗跌天数）、RS 5 日均值、20 日累计 RS（价格法）
 //   3. 票性分类：逆势强势 / 顺周期β / 随波逐流（按 RS 分布自动归类）
 //   4. 连续性：最长连阳/连阴、量能放大日上涨率（放量跟涨还是放量出货）
 //   5. 周五效应：周五样本涨跌率/周五 vs 非周五均涨/周五高开低走/周五 RS（样本<8 禁引用）
+//   6. 波动与量能锚（rules.md 止损体系"波动率锚定"与盘面语言库"量比"条口径）：ATR(14) Wilder 平滑、收盘量比
 // 保鲜期规则（rules.md 票性章）：画像引用超 2 个交易日必须重算本工具再引用。
 'use strict';
 const { execFileSync } = require('child_process');
@@ -101,11 +102,34 @@ function analyze(code, lookback, idxCode) {
   const idxDownPosRate = idxDownDays ? idxDownPos / idxDownDays : 0;
   const volUpUpRate = volUpCnt ? volUpUp / volUpCnt : 0;
   const label = classify(rsPosRate, idxDownPosRate, volUpUpRate);
+  // ATR(14) Wilder 平滑：TR=max(高-低, |高-昨收|, |低-昨收|)，首值=首日 TR 的简单均值，其后 ATR=(前值×13+当期TR)/14
+  let atr14 = null;
+  if (n >= 15) {
+    let sumTr = 0, cntTr = 0;
+    for (let i = 1; i < n; i++) {
+      const r = use[i], p = use[i - 1];
+      const tr = Math.max(r.high - r.low, Math.abs(r.high - p.last), Math.abs(r.low - p.last));
+      if (atr14 === null) { sumTr += tr; cntTr++; if (cntTr === 14) atr14 = sumTr / 14; }
+      else atr14 = (atr14 * 13 + tr) / 14;
+    }
+  }
+  // 20 日累计 RS（价格法）：区间票累计涨幅 - 区间大盘累计涨幅，rules.md 票性节"20 日累计 RS 结构判据"
+  const win = Math.min(20, n - 1);
+  const rs20 = win >= 10 ? pct(use[n - 1].last, use[n - 1 - win].last) - pct(idxMap.get(use[n - 1].date).last, idxMap.get(use[n - 1 - win].date).last) : null;
+  // 收盘量比（日频口径）：当日总量 × 5 ÷ 过去 5 日总量，收盘后等价标准量比定义
+  let volRatio = null;
+  if (n >= 6) {
+    let prev5 = 0;
+    for (let i = n - 6; i < n - 1; i++) prev5 += use[i].volume;
+    volRatio = prev5 > 0 ? use[n - 1].volume * 5 / prev5 : null;
+  }
+  const atrPct = atr14 !== null ? (atr14 / use[n - 1].last * 100) : null;
 
   console.log(`\n### ${code}（近 ${n} 个交易日，基准 ${idxCode}）`);
   console.log(`票性分类：${label}`);
   console.log(`日线性格：高开${gapUp}次·低走${gapUpLow}次（${(gapUp ? gapUpLow / gapUp * 100 : 0).toFixed(0)}%）｜低开${gapDown}次·高走${gapDownHigh}次（${(gapDown ? gapDownHigh / gapDown * 100 : 0).toFixed(0)}%）｜阳线率 ${(yang / n * 100).toFixed(0)}%｜平均振幅 ${ampAvg.toFixed(2)}%`);
-  console.log(`相对强度：RS>0 天数占比 ${(rsPosRate * 100).toFixed(0)}%｜大盘跌日 ${idxDownDays} 天中 ${idxDownPos} 天 RS>0（${(idxDownPosRate * 100).toFixed(0)}%）｜RS 近5日均值 ${rs5Avg >= 0 ? '+' : ''}${rs5Avg.toFixed(2)}pp`);
+  console.log(`相对强度：RS>0 天数占比 ${(rsPosRate * 100).toFixed(0)}%｜大盘跌日 ${idxDownDays} 天中 ${idxDownPos} 天 RS>0（${(idxDownPosRate * 100).toFixed(0)}%）｜RS 近5日均值 ${rs5Avg >= 0 ? '+' : ''}${rs5Avg.toFixed(2)}pp${rs20 === null ? '' : `｜20日累计RS（价格法） ${rs20 >= 0 ? '+' : ''}${rs20.toFixed(2)}pp`}`);
+  console.log(`波动与量能锚：ATR(14) ${atrPct === null ? '样本不足（<15 日）' : `${atr14.toFixed(3)} 元（占价 ${atrPct.toFixed(2)}%，止损下限参考 1.5×=${(atrPct * 1.5).toFixed(2)}%，吊灯止盈 3×=${(atrPct * 3).toFixed(2)}%）`}｜收盘量比 ${volRatio === null ? '样本不足（<6 日）' : volRatio.toFixed(2)}`);
   console.log(`连续性：最长连阳 ${maxUp} 天 / 连阴 ${maxDown} 天｜放量日上涨率 ${(volUpUpRate * 100).toFixed(0)}%（放量跟涨 or 出货）`);
   if (friN >= 8) {
     const friAvg = friSum / friN, nonFriAvg = (allN - friN) ? (allSum - friSum) / (allN - friN) : 0;
