@@ -14,7 +14,8 @@
 #   1. 头部自动加语义 emoji（tag→emoji 映射，未收录用 📣）；
 #   2. --title 智能去重：剥掉误带的"股票管家"前缀/重复 tag，杜绝"股票管家·操作思路｜股票管家·xxx"复读；
 #   3. 正文换行复原（node 实现，多字节安全，node 缺失时原样保留）：<br>/\r/字面 \n → 真换行；
-#      两侧非字母的裸 n/nn（AI 坏习惯产物）→ 真换行；行修剪；连续空行压成一行；
+#      两侧非字母的裸 n/nn（AI 坏习惯产物）→ 真换行；带圈序号 ①-⑳ 前自动断行成段；
+#      行修剪；连续空行压成一行；
 #   4. 空正文兜底"✅ 详情见标题"；5. 超长按行边界截断（结论在前，保头舍尾）；6. 脚注带 ⏱。
 #   正文支持企微 markdown（**粗体**、<font color="info|comment|warning">、> 引用、列表），
 #   可由 --body 传入或从 stdin 读入；超长自动截断；发送失败写 $HOME/.stock-guardian/webhook.log。
@@ -109,6 +110,9 @@ let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
   s=s.replace(/\r/g,"\n");
   s=s.replace(/\\n/g,"\n").replace(/<br\s*\/?>/gi,"\n");
   s=s.replace(/(^|[^a-zA-Z])([nN]{1,2})(?![a-zA-Z])/g,(m,p,ns)=>p+"\n".repeat(ns.length));
+  // 序号分节断行（2026-10-15 风格雷达排版专项）：正文中出现的带圈序号 ①-⑳ 几乎必是分节点，
+  // 其前若非行首则强制断行——治"执行 AI 把①②③④压成一行"的通用 case，所有场景通知受益
+  s=s.replace(/([^\n])([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])/g,"$1\n$2");
   s=s.split("\n").map(l=>l.trim()).filter(l=>l!=="").join("\n\n");
   s=s.trim();
   if(!s) s="✅ 详情见标题";

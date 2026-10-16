@@ -134,8 +134,8 @@ OUT=$(awk -v rules="$WATCH_CONF" -v qfile="$QTMP" -v sfile="$STATE_FILE" -v boxf
     while((getline L < boxfile)>0){
       if(L ~ /^BOX\|/){ split(L,f,"|"); gsub(/ /,"",f[2]); gsub(/ /,"",f[3]); gsub(/ /,"",f[4])
         if(f[2]!="" && f[3]+0>0 && f[4]+0>0){
-          ua=(f[2] in Pup)?Pup[f[2]]:"无预案动作记录：对照档案规则线执行，拿不准就问管家"
-          da=(f[2] in Pdown)?Pdown[f[2]]:"无预案动作记录：对照档案规则线执行，拿不准就问管家"
+          ua=(f[2] in Pup)?Pup[f[2]]:"无预案动作记录：先看量价与箱体结构再定，拿不准就问管家"
+          da=(f[2] in Pdown)?Pdown[f[2]]:"无预案动作记录：先看量价与箱体结构再定，拿不准就问管家"
           n++; Rcode[n]=f[2]; Rcond[n]="above"; Rarg[n]=f[4]; Rlabel[n]="突破当日箱体上沿 "f[4]; Ract[n]=ua; Rsrc[n]="box"
           n++; Rcode[n]=f[2]; Rcond[n]="below"; Rarg[n]=f[3]; Rlabel[n]="跌破当日箱体下沿 "f[3]; Ract[n]=da; Rsrc[n]="box"
         }
@@ -164,14 +164,27 @@ OUT=$(awk -v rules="$WATCH_CONF" -v qfile="$QTMP" -v sfile="$STATE_FILE" -v boxf
           k=c"|pct"th d "@" today
           if(!(k in STst) || STst[k]!="hit"){
             STst[k]="hit"; STep[k]=now
-            pa=(d=="down")?("下方预案→"(Pdown[c]?Pdown[c]:"这只票没写下方预案：拿住别乱动，拿不准就问管家")):("上方预案→"(Pup[c]?Pup[c]:"这只票没写上方预案：拿住别乱动，拿不准就问管家"))
+          pa=(d=="down")?("下方预案→"(Pdown[c]?Pdown[c]:"这只票没写下方预案：先看当日箱体位置与量价再定，拿不准就问管家")):("上方预案→"(Pup[c]?Pup[c]:"这只票没写上方预案：先看当日箱体位置与量价再定，拿不准就问管家"))
             print "A|pct|"Qname[c]"|"c"|"Qraw[c]"|"QchgS[c]"|当日大动静（你设的 ±"th"%）|"pa
           }
         }
         continue
       }
       k=c"|"Rcond[i]":"Rarg[i]; if(Rsrc[i]=="box") k=k"@"today; trig=0
-      if(Rcond[i]=="below"){ trig=(p<=Rarg[i]+0) }
+      if(Rcond[i]=="below"){
+        trig=(p<=Rarg[i]+0)
+        # ---- 除权跳空防护（2026-10-16 审计补）：行情说今天没怎么跌、价格却比线低 5% 以上 = 机械跳空特征 ----
+        # 除权日腾讯行情的涨跌幅按除权后昨收计算（约等于 0），真实暴跌则同步显示大跌；两者在此可区分
+        # 只防静态线（conf）：当日箱体（box）按除权后价格当天重画，天然对齐不受影响
+        if(trig && Rsrc[i]!="box" && Qchg[c] > -4 && (Rarg[i]-p)/Rarg[i] > 0.05){
+          trig=0
+          kx=c"|xdskip@"today
+          if(!(kx in STst)){ STst[kx]="hit"; STep[kx]=now
+            print "A|xd|"Qname[c]"|"c"|"Qraw[c]"|"QchgS[c]"|疑似除权跳空（当日涨跌仅"QchgS[c]"但价格比线低 5% 以上）|这不是跌破，是分红送股后价格记账方式变了：该票所有旧价格线今日失效，止损警报自动暂停——等除权换算或重画新线后再恢复对照"
+          }
+          continue
+        }
+      }
       else if(Rcond[i]=="above"){ trig=(p>=Rarg[i]+0) }
       else if(Rcond[i]=="zone"){ split(Rarg[i],z,","); trig=(p>=z[1]+0 && p<=z[2]+0) }
       if(trig){
@@ -196,7 +209,7 @@ OUT=$(awk -v rules="$WATCH_CONF" -v qfile="$QTMP" -v sfile="$STATE_FILE" -v boxf
         k=c"|pct3" d "@" today
         if(!(k in STst) || STst[k]!="hit"){
           STst[k]="hit"; STep[k]=now
-          pa=(d=="down")?("下方预案→"(Pdown[c]?Pdown[c]:"这只票没写下方预案：拿住别乱动，拿不准就问管家")):("上方预案→"(Pup[c]?Pup[c]:"这只票没写上方预案：拿住别乱动，拿不准就问管家"))
+          pa=(d=="down")?("下方预案→"(Pdown[c]?Pdown[c]:"这只票没写下方预案：先看当日箱体位置与量价再定，拿不准就问管家")):("上方预案→"(Pup[c]?Pup[c]:"这只票没写上方预案：先看当日箱体位置与量价再定，拿不准就问管家"))
 print "A|pct|"Qname[c]"|"c"|"Qraw[c]"|"QchgS[c]"|当日大动静（默认 ±3%）|"pa
         }
       }
