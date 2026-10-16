@@ -13,9 +13,10 @@
 # 用法：
 #   picks-log.sh rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>"
 #   picks-log.sh verify <id> <状态:命中|作废|超时|进行中> "<一句话>"
-#   picks-log.sh open                     列全部未结案推荐（有 PICK 无终态 VERDICT）
+#   picks-log.sh open                     列全部未结案推荐（有 PICK 无终态 VERDICT；当日荐股闸门排除）
 #   picks-log.sh history [N]              列最近 N 条 PICK（默认 20）
 #   picks-log.sh stats [方向标签]          汇总命中率（按方向分组）
+#   picks-log.sh streak [方向标签]         按方向的终态时序与连续错计数（熔断判定依据）
 #   picks-log.sh insight "<一句话>" [方向标签]   沉淀一条思路修正（无标签归"通用"）
 set -u
 SG_HOME="${SG_HOME:-$HOME/.stock-guardian}"
@@ -24,10 +25,11 @@ PICKS_FILE="$SG_HOME/picks.md"
 usage() { cat <<'EOF'
 用法：picks-log.sh <子命令> [参数]
   rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>"   落一条推荐
-  verify <id> <命中|作废|超时|进行中> "<一句话>"                  验证落判
-  open                       列未结案推荐
+  verify <id> <命中|作废|超时|进行中> "<一句话>"                  验证落判（当日推荐拒判）
+  open                       列未结案推荐（当日荐股闸门排除）
   history [N]                列最近 N 条推荐（默认 20）
   stats [方向标签]            命中率汇总
+  streak [方向标签]           终态时序与连续错计数（熔断判定）
   insight "<一句话>" [方向标签]  沉淀思路修正
 台账文件：$HOME/.stock-guardian/picks.md（长期保留，永不清理；属用户数据，永不进 skill 目录）
 EOF
@@ -67,7 +69,12 @@ case "${1:-}" in
     [ -n "$CODE" ] && [ -n "$NAME" ] && [ -n "$DIRECTION" ] && [ -n "$TRIG" ] && [ -n "$KILL" ] && [ -n "$EXP" ] && [ -n "$REASON" ] \
       || die "rec 用法：picks-log.sh rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> \"<理由>\"（七项都不能空）"
     case "$CODE" in sh*|sz*|bj*) ;; *) die "rec：只支持 A股代码（sh/sz/bj 前缀），收到 $CODE" ;; esac
-    no_pipe "$NAME"; no_pipe "$DIRECTION"; no_pipe "$REASON"
+    # 全字段防竖线：机器行以 | 分隔，任何字段混入竖线都会让后续解析静默错位
+    no_pipe "$CODE"; no_pipe "$NAME"; no_pipe "$DIRECTION"; no_pipe "$TRIG"; no_pipe "$KILL"; no_pipe "$EXP"; no_pipe "$REASON"
+    # 价格与日期格式校验：杜绝伪精度与日期口算错误进台账
+    case "$TRIG" in *[!0-9.]*) die "rec：触发价只允许数字与小数点，收到 $TRIG" ;; esac
+    case "$KILL" in *[!0-9.]*) die "rec：作废价只允许数字与小数点，收到 $KILL" ;; esac
+    date -d "$EXP" +%F >/dev/null 2>&1 || die "rec：有效期至必须是合法日期（YYYY-MM-DD），收到 $EXP"
     init_file
     ID=$(next_id)
     printf 'PICK|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$ID" "$(date +%F)" "$CODE" "$NAME" "$DIRECTION" "$TRIG" "$KILL" "$EXP" "$REASON" >>"$PICKS_FILE"
@@ -81,6 +88,9 @@ case "${1:-}" in
     no_pipe "$NOTE"
     init_file
     grep -q "^PICK|$ID|" "$PICKS_FILE" || die "verify：台账里不存在推荐 $ID（先 rec 才能验证）"
+    # 当日闸门：推荐当日不核销（16:00 荐股 16:15 验证的时序里，行情还没走出可判定的走势）
+    PICK_DAY=$(grep "^PICK|$ID|" "$PICKS_FILE" | head -1 | cut -d'|' -f3)
+    [ "$PICK_DAY" != "$(date +%F)" ] || die "verify：$ID 是当日推荐，当日不核销，留 3 个交易日窗口（首个核销日：下一交易日）"
     # 终态校验：命中/作废/超时之后不允许再改判（防止事后挑好看的状态）
     for s in 命中 作废 超时; do
       if grep -q "^VERDICT|$ID|.*|$s|" "$PICKS_FILE"; then
@@ -93,14 +103,15 @@ case "${1:-}" in
   open)
     init_file
     # 未结案 = 有 PICK 无终态 VERDICT（命中/作废/超时）；"进行中" VERDICT 不结案
-    awk -F'|' '
-      $1 == "PICK" { pick[$2] = $0; order[++n] = $2 }
+    # 当日闸门：推荐当日不进未结案清单（行情没跑完，给 3 个交易日窗口从次日起算）
+    awk -F'|' -v today="$(date +%F)" '
+      $1 == "PICK" { pick[$2] = $0; order[++n] = $2; pickday[$2] = $3 }
       $1 == "VERDICT" && ($4 == "命中" || $4 == "作废" || $4 == "超时") { done[$2] = 1 }
       END {
         cnt = 0
-        for (i = 1; i <= n; i++) if (!(order[i] in done)) { cnt++; print pick[order[i]] }
+        for (i = 1; i <= n; i++) if (!(order[i] in done) && pickday[order[i]] != today) { cnt++; print pick[order[i]] }
         if (cnt == 0) print "（台账里没有未结案推荐）"
-        else print "（共 " cnt " 条未结案）"
+        else print "（共 " cnt " 条未结案，当日荐股已按闸门排除）"
       }' "$PICKS_FILE"
     ;;
   history)
@@ -162,6 +173,43 @@ case "${1:-}" in
     init_file
     printf 'INSIGHT|%s|%s|%s\n' "$(date +%F)" "$TAG" "$TEXT" >>"$PICKS_FILE"
     printf '已沉淀思路修正：「%s」（标签：%s）\n' "$TEXT" "$TAG"
+    ;;
+  streak)
+    # 按方向输出按时序排列的终态序列与连续错（作废/超时）计数——连续错熔断的判定依据
+    # 用法：picks-log.sh streak [方向标签]；无标签时全部方向各列一组
+    TAG="${2:-}"
+    init_file
+    awk -F'|' -v want="$TAG" '
+      $1 == "PICK" { dir[$2] = $6; day[$2] = $3 }
+      $1 == "VERDICT" && ($4 == "命中" || $4 == "作废" || $4 == "超时") {
+        vid = $2; if (want == "" || dir[vid] == want) {
+          n++; k = day[vid] "|" vid
+          key[n] = k; state[k] = $4
+        }
+      }
+      END {
+        if (n == 0) { print "（无终态记录，streak 无内容）"; exit }
+        # 按推荐日期+id 排序（id 内含日期前缀，直接字符串排序即时间序）
+        asort(key)
+        # 逐方向独立统计连续错
+        cur_dir = ""
+        for (i = 1; i <= n; i++) {
+          split(key[i], a, "|"); vid = a[2]
+          d = dir[vid]
+          if (d != cur_dir) {
+            if (cur_dir != "") print ""
+            cur_dir = d; streak_bad = 0; streak_good = 0
+            print "方向「" d "」终态时序："
+          }
+          s = state[key[i]]
+          if (s == "作废" || s == "超时") { streak_bad++; streak_good = 0 }
+          else if (s == "命中") { streak_good++; streak_bad = 0 }
+          printf "  %s %s %s", vid, day[vid], s
+          if (streak_bad >= 2) printf "  ← 连续错 %d 次（熔断线：连续 2 次终态作废/超时，暂停该方向 5 个交易日）", streak_bad
+          if (streak_good >= 2) printf "  ← 连续命中 %d 次（方向延续参考）", streak_good
+          print ""
+        }
+      }' "$PICKS_FILE"
     ;;
   *)
     usage
