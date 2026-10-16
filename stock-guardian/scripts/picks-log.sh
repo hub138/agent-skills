@@ -6,12 +6,14 @@
 #   因为推荐思路的扭转靠跨周比对（连续错的方向要暂停，连续对的方向要延续），35 天不够。
 # 文件：$HOME/.stock-guardian/picks.md（600 权限；属用户数据，永不进 skill 目录）
 # 机器行格式（| 为分隔符，文本字段内禁用竖线）：
-#   PICK|<id>|<日期YYYY-MM-DD>|<代码>|<名称>|<方向>|<触发价>|<作废价>|<有效期至>|<理由一句话>
+#   PICK|<id>|<日期YYYY-MM-DD>|<代码>|<名称>|<方向>|<触发价>|<作废价>|<有效期至>|<理由一句话>[|事件YYYYMMDD-N]
+#     末段可选：推荐理由直接依赖某事件时带 NEWS 事件ID（事件驱动型，事件已落地则有效期缩至 2 个交易日）
 #   VERDICT|<id>|<日期YYYY-MM-DD>|<状态>|<一句话>
-#     状态四态：命中/作废/超时/进行中
+#     状态四态：命中/作废/超时/进行中；归因四选一：理由兑现/理由未兑现但价格到了/理由与价格双错/理由被新闻面否决
 #   INSIGHT|<日期YYYY-MM-DD>|<方向标签>|<一句话>
+#     新闻面类标签：新闻面-新事件（推荐后新利空，运气外因）/ 新闻面-遗漏（推荐时已可查而漏查，雷达缺陷）
 # 用法：
-#   picks-log.sh rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>"
+#   picks-log.sh rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>" [事件ID]
 #   picks-log.sh verify <id> <状态:命中|作废|超时|进行中> "<一句话>"
 #   picks-log.sh open                     列全部未结案推荐（有 PICK 无终态 VERDICT；当日荐股闸门排除）
 #   picks-log.sh history [N]              列最近 N 条 PICK（默认 20）
@@ -24,7 +26,7 @@ PICKS_FILE="$SG_HOME/picks.md"
 
 usage() { cat <<'EOF'
 用法：picks-log.sh <子命令> [参数]
-  rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>"   落一条推荐
+  rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>" [事件ID]   落一条推荐（事件ID可选：事件驱动型推荐）
   verify <id> <命中|作废|超时|进行中> "<一句话>"                  验证落判（当日推荐拒判）
   open                       列未结案推荐（当日荐股闸门排除）
   history [N]                列最近 N 条推荐（默认 20）
@@ -65,20 +67,26 @@ no_pipe() { case "$1" in *"|"*) die "文本字段里不要用竖线 | 字符（�
 
 case "${1:-}" in
   rec)
-    CODE="${2:-}"; NAME="${3:-}"; DIRECTION="${4:-}"; TRIG="${5:-}"; KILL="${6:-}"; EXP="${7:-}"; REASON="${8:-}"
+    CODE="${2:-}"; NAME="${3:-}"; DIRECTION="${4:-}"; TRIG="${5:-}"; KILL="${6:-}"; EXP="${7:-}"; REASON="${8:-}"; EVTID="${9:-}"
     [ -n "$CODE" ] && [ -n "$NAME" ] && [ -n "$DIRECTION" ] && [ -n "$TRIG" ] && [ -n "$KILL" ] && [ -n "$EXP" ] && [ -n "$REASON" ] \
-      || die "rec 用法：picks-log.sh rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> \"<理由>\"（七项都不能空）"
+      || die "rec 用法：picks-log.sh rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> \"<理由>\" [事件ID]（前七项都不能空）"
     case "$CODE" in sh*|sz*|bj*) ;; *) die "rec：只支持 A股代码（sh/sz/bj 前缀），收到 $CODE" ;; esac
     # 全字段防竖线：机器行以 | 分隔，任何字段混入竖线都会让后续解析静默错位
-    no_pipe "$CODE"; no_pipe "$NAME"; no_pipe "$DIRECTION"; no_pipe "$TRIG"; no_pipe "$KILL"; no_pipe "$EXP"; no_pipe "$REASON"
+    no_pipe "$CODE"; no_pipe "$NAME"; no_pipe "$DIRECTION"; no_pipe "$TRIG"; no_pipe "$KILL"; no_pipe "$EXP"; no_pipe "$REASON"; no_pipe "$EVTID"
     # 价格与日期格式校验：杜绝伪精度与日期口算错误进台账
     case "$TRIG" in *[!0-9.]*) die "rec：触发价只允许数字与小数点，收到 $TRIG" ;; esac
     case "$KILL" in *[!0-9.]*) die "rec：作废价只允许数字与小数点，收到 $KILL" ;; esac
     date -d "$EXP" +%F >/dev/null 2>&1 || die "rec：有效期至必须是合法日期（YYYY-MM-DD），收到 $EXP"
+    # 事件ID可选：带则校验格式（YYYYMMDD-序号），供验证任务判定"理由被新闻面否决"时反查
+    if [ -n "$EVTID" ]; then
+      case "$EVTID" in *[!0-9-]*) die "rec：事件ID只允许数字与连字符（YYYYMMDD-序号），收到 $EVTID" ;; esac
+    fi
     init_file
     ID=$(next_id)
-    printf 'PICK|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$ID" "$(date +%F)" "$CODE" "$NAME" "$DIRECTION" "$TRIG" "$KILL" "$EXP" "$REASON" >>"$PICKS_FILE"
-    echo "已落推荐 $ID：$NAME $DIRECTION 触发 $TRIG 作废 $KILL 有效期至 $EXP"
+    printf 'PICK|%s|%s|%s|%s|%s|%s|%s|%s|%s' "$ID" "$(date +%F)" "$CODE" "$NAME" "$DIRECTION" "$TRIG" "$KILL" "$EXP" "$REASON" >>"$PICKS_FILE"
+    if [ -n "$EVTID" ]; then printf '|%s' "$EVTID" >>"$PICKS_FILE"; fi
+    printf '\n' >>"$PICKS_FILE"
+    echo "已落推荐 $ID：$NAME $DIRECTION 触发 $TRIG 作废 $KILL 有效期至 $EXP${EVTID:+（事件驱动型，事件 $EVTID）}"
     echo "理由：$REASON"
     ;;
   verify)
@@ -176,15 +184,17 @@ case "${1:-}" in
     ;;
   streak)
     # 按方向输出按时序排列的终态序列与连续错（作废/超时）计数——连续错熔断的判定依据
+    # 新闻面否决豁免（rules.md 荐股台账节）：PICK 行带事件ID 且归因句含"新闻面否决"的终态不计入连续错
     # 用法：picks-log.sh streak [方向标签]；无标签时全部方向各列一组
     TAG="${2:-}"
     init_file
     awk -F'|' -v want="$TAG" '
-      $1 == "PICK" { dir[$2] = $6; day[$2] = $3 }
+      $1 == "PICK" { dir[$2] = $6; day[$2] = $3; evid[$2] = ($11 == "" ? "" : $11) }
       $1 == "VERDICT" && ($4 == "命中" || $4 == "作废" || $4 == "超时") {
         vid = $2; if (want == "" || dir[vid] == want) {
           n++; k = day[vid] "|" vid
           key[n] = k; state[k] = $4
+          note[k] = $5
         }
       }
       END {
@@ -202,9 +212,12 @@ case "${1:-}" in
             print "方向「" d "」终态时序："
           }
           s = state[key[i]]
-          if (s == "作废" || s == "超时") { streak_bad++; streak_good = 0 }
-          else if (s == "命中") { streak_good++; streak_bad = 0 }
-          printf "  %s %s %s", vid, day[vid], s
+          exempt = (evid[vid] != "" && note[key[i]] ~ /新闻面否决/) ? 1 : 0
+          if (s == "作废" || s == "超时") {
+            if (exempt) { tag_ex = "（新闻面否决豁免，不计连续错）" } else { streak_bad++; streak_good = 0; tag_ex = "" }
+          }
+          else if (s == "命中") { streak_good++; streak_bad = 0; tag_ex = "" }
+          printf "  %s %s %s%s", vid, day[vid], s, tag_ex
           if (streak_bad >= 2) printf "  ← 连续错 %d 次（熔断线：连续 2 次终态作废/超时，暂停该方向 5 个交易日）", streak_bad
           if (streak_good >= 2) printf "  ← 连续命中 %d 次（方向延续参考）", streak_good
           print ""

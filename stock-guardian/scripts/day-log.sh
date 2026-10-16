@@ -10,6 +10,8 @@
 #   day-log.sh list [N]                 列最近 N 天档案（默认 10，供复盘定位）
 #   day-log.sh box <代码> <下沿> <上沿>  记录当日箱体（同代码替换式）
 #   day-log.sh plan <代码> "<突破上沿怎么办>" "<跌破下沿怎么办>"  记录当日预案动作（同代码替换式；文本禁竖线|）
+#   day-log.sh news "<事件ID>" "<分级>" "<主体>" "<事件>" "<影响方向>" "<影响链>" "<数据源>"
+#                                       记录新闻雷达事件行（同事件ID替换式；协议见 rules.md 新闻面协议节）
 #   plan 的两句话在 watchdog 触发该票箱体警报时原样推给用户——用户要看的是"该怎么办"，不是"去翻预案"
 set -u
 SG_HOME="${SG_HOME:-$HOME/.stock-guardian}"
@@ -67,8 +69,29 @@ case "${1:-}" in
     cleanup
     echo "已记录当日预案 $CODE：突破上沿→$UP；跌破下沿→$DOWN（watchdog 触发时原样推给用户）"
     ;;
+  news)
+    # 新闻雷达事件行：NEWS|<日期>|<时间>|<事件ID>|<分级>|<主体>|<事件>|<影响方向>|<影响链>|<数据源>
+    # 同事件ID替换式（去重键=事件ID，续闻升级由调用方判新事件新ID）；全字段禁竖线
+    EID="${2:-}"; LEVEL="${3:-}"; ENTITY="${4:-}"; EVENT="${5:-}"; DIR="${6:-}"; CHAIN="${7:-}"; SRC="${8:-}"
+    [ -n "$EID" ] && [ -n "$LEVEL" ] && [ -n "$ENTITY" ] && [ -n "$EVENT" ] && [ -n "$DIR" ] && [ -n "$CHAIN" ] && [ -n "$SRC" ] \
+      || { echo "用法：day-log.sh news \"<事件ID>\" \"<分级:重大|关注|噪声|无|ERROR>\" \"<主体>\" \"<事件>\" \"<影响方向:利多|利空|中性>\" \"<影响链>\" \"<数据源>\"（七项都不能空）" >&2; exit 1; }
+    case "$LEVEL" in 重大|关注|噪声|无|ERROR) ;; *) echo "news：分级只允许 重大|关注|噪声|无|ERROR（收到的是「$LEVEL」）" >&2; exit 1;; esac
+    case "$DIR" in 利多|利空|中性) ;; *) echo "news：影响方向只允许 利多|利空|中性（收到的是「$DIR」）" >&2; exit 1;; esac
+    for _f in "$EID" "$ENTITY" "$EVENT" "$CHAIN" "$SRC"; do
+      case "$_f" in *"|"*) echo "news：文本字段里不要用竖线 | 字符（机器行分隔符）：${_f:0:40}" >&2; exit 1;; esac
+    done
+    case "$EID" in *[!0-9-]*) echo "news：事件ID只允许数字与连字符（YYYYMMDD-序号），收到 $EID" >&2; exit 1;; esac
+    mkdir -p "$DAY_DIR" 2>/dev/null && chmod 700 "$DAY_DIR" 2>/dev/null
+    F="$DAY_DIR/$(date +%F).md"
+    if [ ! -f "$F" ]; then printf '# %s 动态档案\n' "$(date +%F)" >"$F"; chmod 600 "$F" 2>/dev/null; fi
+    # 同事件ID旧 NEWS 行先删再写（替换而非追加）：续闻升级与误重报不会留双行
+    grep -v "^NEWS|.*|$EID|" "$F" >"$F.tmp" 2>/dev/null && mv -f "$F.tmp" "$F"
+    printf 'NEWS|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$(date +%F)" "$(date +%H:%M)" "$EID" "$LEVEL" "$ENTITY" "$EVENT" "$DIR" "$CHAIN" "$SRC" >>"$F"
+    cleanup
+    echo "已记录新闻事件 $EID [$LEVEL] $ENTITY：$EVENT（$DIR，$CHAIN）"
+    ;;
   *)
-    echo "用法：day-log.sh read [日期] | append \"场景名\" \"要点\" | box <代码> <下沿> <上沿> | plan <代码> \"<突破动作>\" \"<跌破动作>\" | list [N]"
+    echo "用法：day-log.sh read [日期] | append \"场景名\" \"要点\" | box <代码> <下沿> <上沿> | plan <代码> \"<突破动作>\" \"<跌破动作>\" | news \"<事件ID>\" \"<分级>\" \"<主体>\" \"<事件>\" \"<影响方向>\" \"<影响链>\" \"<数据源>\" | list [N]"
     echo "档案目录：$DAY_DIR（35 天自动清理；属用户数据，永不进 skill 目录）"
     ;;
 esac

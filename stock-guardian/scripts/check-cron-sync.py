@@ -1,5 +1,5 @@
 # 校验 cron-recipe.md 配方模板与线上 cron_tasks.json 任务的 jobMessage 同源性
-# 用法：python3 check-cron-sync.py [cron_tasks.json 路径]（默认 ./cron_tasks.json，传入你的定时任务文件路径）
+# 用法：python3 check-cron-sync.py [cron_tasks.json 路径]（默认 /root/.bg-agent/cron_tasks.json）
 # 输出：逐任务 OK/DRIFT，配方里新增而线上缺失的能力标记为 GAP
 import json
 import re
@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 RECIPE = Path(__file__).resolve().parent.parent / "references" / "cron-recipe.md"
-TASKS = Path(sys.argv[1] if len(sys.argv) > 1 else "./cron_tasks.json")
+TASKS = Path(sys.argv[1] if len(sys.argv) > 1 else "/root/.bg-agent/cron_tasks.json")
 
 # 配方任务名 → 线上任务名映射（线上命名带前缀）
 NAME_MAP = {
@@ -19,6 +19,7 @@ NAME_MAP = {
     "午间检查": "股票管家·午间检查",
     "盘中巡检": "股票管家·盘中巡检",
     "尾盘决策": "股票管家·尾盘编辑".replace("编辑", "决策"),
+    "新闻雷达": "股票管家·新闻雷达",
     "风格雷达": "股票管家·风格雷达",
     "盘后荐股": "股票管家·盘后荐股",
     "荐股验证": "股票管家·荐股验证",
@@ -29,12 +30,13 @@ NAME_MAP = {
 
 # 能力标记：配方挂载的新能力短语 → 所属任务
 CAPABILITY_MARKERS = {
-    "早报": ["三情景预演", "票性画像保鲜"],
+    "早报": ["三情景预演", "票性画像保鲜", "候选新闻面核查", "新闻面背离修正"],
     "财务哨兵": ["宏观日历"],
-    "尾盘决策": ["组合相关性周评", "票性画像保鲜"],
-    "风格雷达": ["票性画像保鲜"],
-    "盘后荐股": ["独立性铁律", "连续错熔断", "picks-log.sh rec"],
-    "荐股验证": ["验证落判四态", "picks-log.sh verify", "周五例行思路复盘"],
+    "尾盘决策": ["组合相关性周评", "票性画像保鲜", "盘中新闻面增量快查"],
+    "新闻雷达": ["三档分级", "day-log.sh news", "宏观日历对账"],
+    "风格雷达": ["票性画像保鲜", "题材新闻归因"],
+    "盘后荐股": ["独立性铁律", "连续错熔断", "picks-log.sh rec", "预期差检查", "事件驱动型推荐"],
+    "荐股验证": ["验证落判四态", "picks-log.sh verify", "周五例行思路复盘", "理由被新闻面否决", "新闻面否决豁免"],
 }
 
 

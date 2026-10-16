@@ -72,6 +72,7 @@ emoji_of_tag(){
     午间检查) printf '🍜' ;;
     盘中巡检) printf '🔍' ;;
     尾盘决策) printf '🌇' ;;
+    新闻雷达) printf '📰' ;;
     财务哨兵) printf '📅' ;;
     风格雷达) printf '📡' ;;
     美股开盘报) printf '🗽' ;;
