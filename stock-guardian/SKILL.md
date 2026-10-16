@@ -27,7 +27,7 @@ description: 个人股票监控与纪律执行中枢。当用户提到"我的持
 
 ## 数据铁律
 
-1. 行情/K线/新闻/公告/财报优先走 westock-data skill（与本文同级 skill 目录）的 `scripts/index.js <子命令>`（A股/美股/日韩股/ETF/汇率均支持，代码用 search 子命令找）。**westock-data 未安装时自动降级公开源**：`scripts/quote-public.sh quote <代码>`（腾讯财经公开接口 qt.gtimg.cn，零密钥零账号；A股/港股/美股可用，fx/日韩/新闻/公告/K线不支持——此时相关场景如实告知能力边界，不硬凑）。无论哪种源，禁止 web_search 查行情，禁止编造数字，查不到就明说。
+1. 行情/K线/新闻/公告/财报优先走 westock-data skill（与本文同级 skill 目录）的 `scripts/index.js <子命令>`（A股/美股/日韩股/ETF/汇率均支持，代码用 search 子命令找）。**westock-data 未安装时自动降级公开源**：`scripts/quote-public.sh quote <代码>`（腾讯财经公开接口 qt.gtimg.cn，零密钥零账号；A股/港股/美股可用，fx/日韩/新闻/公告/K线不支持——此时相关场景如实告知能力边界，不硬凑）。无论哪种源，禁止 web_search 查行情，禁止编造数字，查不到就明说。**新闻面例外（rules.md「新闻面协议」节）**：查新闻允许 web_search 兜底（westock-data news 优先），但只查新闻不查行情，单一网络来源封顶关注档禁止判重大档，权威白名单 gov.cn/xinhuanet.com/people.com.cn/eastmoney.com/cls.cn；双源全失败落 ERROR 级 NEWS 行明说"新闻面未知"，禁止默认中性。
 2. 批量优先：一条 quote 逗号分隔多码。已知坑：**日韩股（ks*/t* 前缀）、汇率（fx*）、美股（us*）混在同一条批量里会静默丢部分数据**——用 `scripts/monitor.sh '代码1,代码2'` 会自动按类拆批，或手动分组查。`./monitor.sh` 无参会自动解析 `~/.stock-guardian/portfolio.md` 监控代码表逐组拉取，`group:<用途关键字>` 按组过滤，任意新代码直接传参即可，脚本本身零用户数据。
 3. 时区与休市：海外数据 updateTime 不是当天即休市，解读时说明"昨日收盘"，别当实时行情。
 4. 选股/筛选 → westock-tool；黄金 → gold-price-analyzer；个股深度判断 → investment-masters（大师框架只作参考，不替代纪律）。
