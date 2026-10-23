@@ -68,6 +68,9 @@ python3 scripts/quality_gate.py check --root . --baseline .work/baseline.json --
 
 review 通过 `scripts/cli_runner.py` 调外部 CLI（claude、codex、codebuddy 任一，用环境变量 `CLI_REVIEW_COMMAND` 指定命令模板，如 `claude -p --model {model}`），评审链至少两个不同模型，`--author` 排除作者；凭据由 CLI 自行管理。subagent 评审按 `skill-craft/SKILL.md` 第四节的 review.json 结构落盘，两条路径都要绑定版本摘要。规则评审只审文本；视觉验收必须另给实际截图与 DOM 指标。
 
+**裁判先挑毛病。** 没指出具体问题的 `approved: true` 视为未通过；派裁判的指令里写明"先证明产物是错的，证明不了才算通过"。换模型时一并换身份，可并行：下游使用者（拿改后规则去真用，走它没写明的路径，指出哪一步卡住、哪一句有歧义）、挑剔审计员（指定 MECE、SWOT、五问之一扫一遍，回答缺漏、互斥与边界）、反向追问（让模型就难点对自己连环提问，人来回答，答不上的那处就是没想透的地方）。每个角色只报能让产物出错的具体输入，且指得出规则里哪一句扛不住。派评审前把已验证事实一并给出——裁判没有事实就只能比措辞。同一段读第三遍仍走不通，就派 subagent 或换模型重做这一步，不在同一会话里硬磨。
+
+
 ## 按要动的东西加载
 
 | 要动的东西 | 读 |
