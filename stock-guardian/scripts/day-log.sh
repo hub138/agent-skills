@@ -87,6 +87,7 @@ case "${1:-}" in
     # 同事件ID旧 NEWS 行先删再写（替换而非追加）：续闻升级与误重报不会留双行
     grep -v "^NEWS|.*|$EID|" "$F" >"$F.tmp" 2>/dev/null && mv -f "$F.tmp" "$F"
     printf 'NEWS|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$(date +%F)" "$(date +%H:%M)" "$EID" "$LEVEL" "$ENTITY" "$EVENT" "$DIR" "$CHAIN" "$SRC" >>"$F"
+    mkdir -p "$SG_HOME/news-archive"; printf 'NEWS|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$(date +%F)" "$(date +%H:%M)" "$EID" "$LEVEL" "$ENTITY" "$EVENT" "$DIR" "$CHAIN" "$SRC" >>"$SG_HOME/news-archive/news.md"  # 防清理备份：day file 35天清，新闻测试集永久留（2026-10-21）
     cleanup
     echo "已记录新闻事件 $EID [$LEVEL] $ENTITY：$EVENT（$DIR，$CHAIN）"
     ;;

@@ -161,10 +161,14 @@ fi
 # dry-run 优先于凭据检查：没配 webhook 的机器也要能预验消息格式（打印后即退出，不读凭据不发送）
 if [ "$DRY" -eq 1 ]; then printf '%s\n' "$MSG"; echo '[dry-run] 未发送'; exit 0; fi
 
-# ---- 读凭据：环境变量优先，其次 webhook.env；两者皆无 = 通道停用 ----
+# ---- 读凭据：凭据文件优先，环境变量只兜底；两者皆无 = 通道停用 ----
+# 2026-10-21 事故修复：原先环境变量优先——/etc/profile.d/data-first.sh 为 upstream-fix 管线
+# 全局 export 的 WECOM_WEBHOOK_URL（bugfix 群 key）在交互会话里压过本 skill 的凭据文件，
+# 导致会话内推送全部误发至错误群（cron 干净环境不受影响）。改为：文件里拿到值就以文件为准。
 # 变量名双兼容：新 WECHAT_WEBHOOK_URL（任意渠道），旧 WECOM_WEBHOOK_URL（企微时代名字）
-URL="${WECHAT_WEBHOOK_URL:-${WECOM_WEBHOOK_URL:-}}"
-if [ -z "$URL" ] && [ -f "$SG_HOME/webhook.env" ]; then . "$SG_HOME/webhook.env"; URL="${WECHAT_WEBHOOK_URL:-${WECOM_WEBHOOK_URL:-}}"; fi
+URL=""
+if [ -f "$SG_HOME/webhook.env" ]; then . "$SG_HOME/webhook.env"; URL="${WECHAT_WEBHOOK_URL:-${WECOM_WEBHOOK_URL:-}}"; fi
+if [ -z "$URL" ]; then URL="${WECHAT_WEBHOOK_URL:-${WECOM_WEBHOOK_URL:-}}"; fi
 if [ -z "$URL" ]; then
   if [ "$REQUIRE" -eq 1 ]; then echo "webhook 未配置（$SG_HOME/webhook.env 缺 WECHAT_WEBHOOK_URL）" >&2; exit 2; fi
   echo "webhook 未配置，跳过推送（删除/缺失 webhook.env 即停用通道）" >&2
@@ -207,13 +211,36 @@ send_notify(){
       # 通用 JSON POST（自定义网关）：把消息按 markdown JSON 发过去，200 即成功
       payload=$(printf '%s' "$msg" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.stringify({msgtype:"markdown",markdown:{content:s}})))' 2>/dev/null)
       resp=$(curl -s -m 10 -H 'Content-Type: application/json' -d "$payload" "$url" 2>/dev/null)
-      case "$resp" in *'errcode'*|*'"code":0'*) return 0;; esac
-      [ -n "$resp" ] && return 0 ;;
+      # 2026-10-29 修：旧口径"响应含 errcode 即成功""非空即成功"——网关返回
+      # {"errcode":310000,...} 也会被判成功，日志留 PUSH 而群里什么都没有。只认显式零码。
+      case "$resp" in
+        *'"errcode":0'*|*'"errcode": 0'*|*'"code":0'*|*'"code": 0'*) return 0 ;;
+      esac
+      echo "[notify] 送达未确认（响应非零码）：$(printf '%s' "$resp" | head -c 160)" >&2
+      return 1 ;;
   esac
   return 1
 }
 
 if send_notify "$URL" "$MSG"; then
+  # 直发任务写入已处理事件作审计；通知中枢内部发送不重复写总线，避免递归事件。
+  if [ "${NOTIFY_HUB_INTERNAL:-0}" != "1" ]; then
+    node -e 'const fs=require("fs"); const [file,ts,title,tag,body]=process.argv.slice(1); const event={ts,type:"notify",title,tag,severity:"P2",processed:true,dedupeKey:`${tag}|${title}`,summary:body.replace(/\s+/g," ").slice(0,120)}; fs.appendFileSync(file,JSON.stringify(event)+"\n")' "$SG_HOME/events.jsonl" "$(date '+%F %T')" "$TITLE" "$TAG" "$BODY" 2>/dev/null || true
+  fi
+  # 结构化推送日志+延误自动告警（2026-10-27 用户"agent与非agent无分开日志/延迟无排查"后立）
+  TASK_NAME="$(echo "$TITLE" | sed 's/股票管家[·.]//; s/ [0-9:]*$//')"
+  printf 'PUSH|%s|%s|%s|%s|%d\n' "$(date '+%F %T')" "$TASK_NAME" "$TAG" "$TITLE" "$(printf '%s' "$BODY" | wc -c)" >> "$SG_HOME/push-log.jsonl"
+  PLAN_MIN=$(node -e "
+const m={'新闻雷达':420,'早报':454,'财务哨兵':480,'亚太早巡':510,'开盘快照':575,'箱体确认':600,'盘中巡检':705,'尾盘决策':885,'风格雷达':930,'账户快照':935,'盘后荐股':960,'荐股验证':975,'美股开盘报':1290,'美股半场报':60,'美股收盘报':245};
+const n=process.argv[1];for(const k in m){if(n.includes(k)){console.log(m[k]);break}}" "$TASK_NAME" 2>/dev/null)
+  if [ -n "$PLAN_MIN" ]; then
+    DELAY=$(node -e "const plan=+process.argv[1];const now=new Date();const cur=now.getHours()*60+now.getMinutes();let d=cur-plan;if(d<-720)d+=1440;if(d>720)d-=1440;console.log(d)" "$PLAN_MIN" 2>/dev/null)
+    if [ -n "$DELAY" ] && [ "$DELAY" -gt 10 ] 2>/dev/null; then
+      printf 'DELAY|%s|%s|%s分钟\n' "$(date '+%F %T')" "$TASK_NAME" "$DELAY" >> "$SG_HOME/push-log.jsonl"
+      log "⚠️ 延误检测：$TASK_NAME 延迟 $DELAY 分钟（>10 阈值）——排查：任务队列/数据拉取/触发配置"
+    fi
+  fi
+  mkdir -p "$SG_HOME/notify-log"; printf '# %s | %s | %s\n%s\n\n' "$(date '+%F %T')" "$TAG" "$TITLE" "$BODY" >> "$SG_HOME/notify-log/notify-$(date +%F).md"  # body全文永久归档（2026-10-27 账实分离badcase后立：通知本体可检索）
   log "已推群 [$TAG] $TITLE"; exit 0
 else
   log "推送失败 [$TAG] $TITLE：${RESP:-无响应}"

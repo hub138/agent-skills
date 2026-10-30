@@ -178,7 +178,7 @@ for (let i = 0; i < args.length; i++) {
 }
 const codes = positional.flatMap(s => s.split(',')).map(s => s.trim()).filter(Boolean);
 if (pairMode) {
-  if (codes.length !== 2) { console.error('--pair 模式需要恰好两只票（如：node stock-behavior.js 510300,510880 --pair）'); process.exit(1); }
+  if (codes.length !== 2) { console.error('--pair 模式需要恰好两只票（如：node stock-behavior.js 510300,510500 --pair）'); process.exit(1); }
   pairAnalyze(codes[0], codes[1], lookback === null ? 20 : lookback);
 } else {
   const lb = lookback === null ? 60 : lookback;

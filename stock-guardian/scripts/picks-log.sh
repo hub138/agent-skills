@@ -10,11 +10,14 @@
 #     末段可选：推荐理由直接依赖某事件时带 NEWS 事件ID（事件驱动型，事件已落地则有效期缩至 2 个交易日）
 #   VERDICT|<id>|<日期YYYY-MM-DD>|<状态>|<一句话>
 #     状态四态：命中/作废/超时/进行中；归因四选一：理由兑现/理由未兑现但价格到了/理由与价格双错/理由被新闻面否决
+#   OUTCOME|<id>|<日期>|<成交价>|<退出价>|<往返成本bp>|<净收益%>|<MFE%>|<MAE%>|<退出原因>
+#     VERDICT 的“命中”只代表价格触发；OUTCOME 只在用户确认成交并退出后写入。
 #   INSIGHT|<日期YYYY-MM-DD>|<方向标签>|<一句话>
 #     新闻面类标签：新闻面-新事件（推荐后新利空，运气外因）/ 新闻面-遗漏（推荐时已可查而漏查，雷达缺陷）
 # 用法：
 #   picks-log.sh rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>" [事件ID]
 #   picks-log.sh verify <id> <状态:命中|作废|超时|进行中> "<一句话>"
+#   picks-log.sh outcome <id> <成交价> <退出价> <成本bp> <MFE%> <MAE%> "<退出原因>"
 #   picks-log.sh open                     列全部未结案推荐（有 PICK 无终态 VERDICT；当日荐股闸门排除）
 #   picks-log.sh history [N]              列最近 N 条 PICK（默认 20）
 #   picks-log.sh stats [方向标签]          汇总命中率（按方向分组）
@@ -28,6 +31,7 @@ usage() { cat <<'EOF'
 用法：picks-log.sh <子命令> [参数]
   rec <代码> <名称> <方向> <触发价> <作废价> <有效期至> "<理由>" [事件ID]   落一条推荐（事件ID可选：事件驱动型推荐）
   verify <id> <命中|作废|超时|进行中> "<一句话>"                  验证落判（当日推荐拒判）
+  outcome <id> <成交价> <退出价> <成本bp> <MFE%> <MAE%> "<退出原因>"  记录已完成交易
   open                       列未结案推荐（当日荐股闸门排除）
   history [N]                列最近 N 条推荐（默认 20）
   stats [方向标签]            命中率汇总
@@ -49,7 +53,7 @@ check_state() {
 init_file() {
   mkdir -p "$SG_HOME" 2>/dev/null
   if [ ! -f "$PICKS_FILE" ]; then
-    printf '# stock-guardian 荐股台账\n# 推荐与验证的长期记录。机器行由 picks-log.sh 维护，人工批注写在普通文本行。\n# PICK/VERDICT/INSIGHT 三类行含义见 picks-log.sh 文件头注释。\n' >"$PICKS_FILE"
+    printf '# stock-guardian 荐股台账\n# 推荐与验证的长期记录。机器行由 picks-log.sh 维护，人工批注写在普通文本行。\n# PICK/VERDICT/OUTCOME/INSIGHT 四类行含义见 picks-log.sh 文件头注释。\n' >"$PICKS_FILE"
     chmod 600 "$PICKS_FILE" 2>/dev/null
   fi
 }
@@ -108,6 +112,24 @@ case "${1:-}" in
     printf 'VERDICT|%s|%s|%s|%s\n' "$ID" "$(date +%F)" "$STATE" "$NOTE" >>"$PICKS_FILE"
     echo "已落验证 $ID → $STATE：$NOTE"
     ;;
+  outcome)
+    ID="${2:-}"; ENTRY="${3:-}"; EXIT="${4:-}"; COST_BP="${5:-}"; MFE="${6:-}"; MAE="${7:-}"; REASON="${8:-}"
+    [ -n "$ID" ] && [ -n "$ENTRY" ] && [ -n "$EXIT" ] && [ -n "$COST_BP" ] && [ -n "$MFE" ] && [ -n "$MAE" ] && [ -n "$REASON" ] \
+      || die "outcome 用法：picks-log.sh outcome <id> <成交价> <退出价> <成本bp> <MFE%> <MAE%> \"<退出原因>\""
+    for value in "$ENTRY" "$EXIT" "$COST_BP" "$MFE" "$MAE"; do
+      case "$value" in *[!0-9.-]*|*.*.*|*--*|-|.|-.) die "outcome：价格、成本、MFE、MAE 必须是数字" ;; esac
+    done
+    no_pipe "$REASON"
+    init_file
+    grep -q "^PICK|$ID|" "$PICKS_FILE" || die "outcome：台账里不存在推荐 $ID"
+    grep -q "^OUTCOME|$ID|" "$PICKS_FILE" && die "outcome：$ID 已有交易结果，不许重复写入"
+    NET=$(awk -v entryP="$ENTRY" -v exitP="$EXIT" -v bp="$COST_BP" 'BEGIN {
+      if (entryP <= 0 || exitP <= 0 || bp < 0) exit 2
+      printf "%.4f", (exitP / entryP - 1) * 100 - bp / 100
+    }') || die "outcome：成交价、退出价必须大于 0，成本bp不能小于 0"
+    printf 'OUTCOME|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$ID" "$(date +%F)" "$ENTRY" "$EXIT" "$COST_BP" "$NET" "$MFE" "$MAE" "$REASON" >>"$PICKS_FILE"
+    echo "已记录交易结果 $ID：净收益 ${NET}%（成本 ${COST_BP}bp）"
+    ;;
   open)
     init_file
     # 未结案 = 有 PICK 无终态 VERDICT（命中/作废/超时）；"进行中" VERDICT 不结案
@@ -146,6 +168,15 @@ case "${1:-}" in
           if (v_st == "命中" || v_st == "作废" || v_st == "超时") closed[v_id] = 1
         }
       }
+      $1 == "OUTCOME" {
+        o_id = $2
+        if (o_id in id_dir) {
+          outcome[o_id] = $7 + 0
+          outcome_n++
+          outcome_sum += $7 + 0
+          if (($7 + 0) > 0) outcome_win++
+        }
+      }
       END {
         if (total == 0) { print "（无推荐记录）"; exit }
         for (i = 1; i <= n; i++) {
@@ -171,6 +202,11 @@ case "${1:-}" in
           printf "｜超时 %d", t_state[want "_超时"] + 0
           printf "｜进行中 %d", t_state[want "_进行中"] + 0
           printf "｜未验证 %d\n", t_state[want "_未验证"] + 0
+        }
+        if (outcome_n > 0) {
+          printf "已完成交易 %d｜盈利 %d｜交易胜率 %.1f%%｜平均净收益 %.2f%%\n", outcome_n, outcome_win, outcome_win / outcome_n * 100, outcome_sum / outcome_n
+        } else {
+          print "已完成交易 0（触发命中率不能代替交易收益）"
         }
       }' "$PICKS_FILE"
     ;;

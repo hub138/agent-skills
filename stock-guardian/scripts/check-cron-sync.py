@@ -1,5 +1,5 @@
 # 校验 cron-recipe.md 配方模板与线上 cron_tasks.json 任务的 jobMessage 同源性
-# 用法：python3 check-cron-sync.py [cron_tasks.json 路径]（默认 /root/.bg-agent/cron_tasks.json）
+# 用法：python3 check-cron-sync.py [cron_tasks.json 路径]（默认 ${HOME}/.bg-agent/cron_tasks.json）
 # 输出：逐任务 OK/DRIFT，配方里新增而线上缺失的能力标记为 GAP
 import json
 import re
@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 RECIPE = Path(__file__).resolve().parent.parent / "references" / "cron-recipe.md"
-TASKS = Path(sys.argv[1] if len(sys.argv) > 1 else "/root/.bg-agent/cron_tasks.json")
+TASKS = Path(sys.argv[1] if len(sys.argv) > 1 else "${HOME}/.bg-agent/cron_tasks.json")
 
 # 配方任务名 → 线上任务名映射（线上命名带前缀）
 NAME_MAP = {
@@ -66,6 +66,12 @@ def main():
             continue
         if online_name not in by_name:
             print(f"[MISSING] {online_name}：线上任务不存在")
+            continue
+        # 2026-10-29 修：线上任务是"薄指针"（提示词指示去读 cron-recipe.md）时，内容天然不等于
+        # 配方模板 → 旧口径一律判 DRIFT 属校验器失真（天天红字=狼来了）。指针只校验存在性。
+        if "cron-recipe" in online:
+            print(f"[OK-POINTER] {online_name}：线上为配方薄指针（内容以文件为准）")
+            ok += 1
             continue
         if msg == online:
             print(f"[OK] {online_name}")

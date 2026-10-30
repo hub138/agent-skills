@@ -66,7 +66,7 @@ quote_batched() {
     # 注意必须 LC_ALL=C：bash/grep 的 [a-z] 在 UTF-8 locale 下按 collation 会匹配到大写，
     # 曾经把合法的 fxUSDJPY 误报成"疑似无效"。
     case "$c" in
-      ks*|kq*) [ "${#c}" -ne 8 ] && echo "$c" | LC_ALL=C grep -qE '^(ks|kq)[0-9]+$' && echo "（⚠ 疑似无效韩股代码 $c：韩股为 ks/kq+6位数字（如 ks005930），无效代码会被数据源静默丢弃）" ;;
+      ks*|kq*) [ "${#c}" -ne 8 ] && echo "$c" | LC_ALL=C grep -qE '^(ks|kq)[0-9]+$' && echo "（⚠ 疑似无效韩股代码 $c：韩股为 ks/kq+6位数字（如 ks123456），无效代码会被数据源静默丢弃）" ;;
       fx*)    echo "$c" | LC_ALL=C grep -qE '^fx[a-z]' && echo "（⚠ 疑似无效汇率代码 $c：汇率代码为全大写（如 fxUSDJPY/fxCNH），无效代码会被数据源静默丢弃）" ;;
     esac
     case "$c" in

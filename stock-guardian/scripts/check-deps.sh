@@ -2,10 +2,10 @@
 # 依赖预检（初始化第 0 步 + 环境诊断共用）：一键体检本 skill 的全部依赖。
 # 分两级：必需（缺失 FAIL，exit 1）/ 建议（缺失 WARN，不拦）。
 # 行情双源（2026-10-15）：westock-data 缺席时自动降级公开源（qt.gtimg.cn，A股/港股/美股可用），
-#         故 westock-data 降为建议级（缺了仍可初始化，但 fx/日韩/新闻/公告/K线不可用）；
+#         故 westock-data 降为建议级（缺了仍可初始化，但 fx/日韩/新闻/公告不可用）；
 #         node 降为建议级（westock-data 在场才需要；公开源适配器纯 bash+curl+awk）。
 # 检测项：curl+awk（必需：公开源与通知）、westock-data（建议：全字段行情源）、
-#         westock-tool（建议：荐股/筛选，纯监控可缺）、node≥18（建议：westock 系依赖）、
+#         westock-tool（建议：全市场筛选；指定代码研究可缺）、node≥18（建议：量化研究与 westock 系依赖）、
 #         timeout / flock（建议，cron watchdog 行）。
 # 用法：bash check-deps.sh ；路径可用环境变量 WESTOCK / WESTOCK_TOOL 覆盖。
 set -u
@@ -25,34 +25,34 @@ fail=0
 if [ -f "$WESTOCK" ]; then
   echo "✅ westock-data：$WESTOCK（行情主源，字段全）"
 else
-  echo "⚠️ westock-data 缺失——将降级走公开源（qt.gtimg.cn）：A股/港股/美股可用，汇率/日韩/新闻/公告/K线不可用"
+  echo "⚠️ westock-data 缺失——将使用公开源：行情与A股日K线可用，汇率/日韩/新闻/公告不可用"
   echo "   修复：把 westock-data skill 装到 skills 目录（与 stock-guardian 同级），或设环境变量 WESTOCK 指向其 scripts/index.js"
 fi
 
-# --- 荐股/筛选必需：westock-tool（纯监控可缺，不拦）---
+# --- 全市场筛选建议：westock-tool；用户指定代码与已有候选研究可缺 ---
 if [ -f "$WESTOCK_TOOL" ]; then
   echo "✅ westock-tool：$WESTOCK_TOOL"
 else
-  echo "⚠️ westock-tool 缺失（荐股/筛选场景必需；只用监控/警报可不装）——预期路径 $WESTOCK_TOOL"
+  echo "⚠️ westock-tool 缺失——不能运行 westock-tool 全市场筛选；指定代码仍可用公开行情与K线进入观察或试验研究"
   echo "   修复：装 westock-tool skill，或设环境变量 WESTOCK_TOOL 指向其 scripts/index.js"
 fi
 
-# --- 建议：node ≥ 18（westock-data / westock-tool 依赖；公开源降级模式不需要）---
+# --- 建议：node ≥ 18（量化研究与 westock-data / westock-tool 依赖）---
 if command -v node >/dev/null 2>&1; then
   node_ver="$(node -v 2>/dev/null | tr -d 'v' | cut -d. -f1)"
   case "$node_ver" in
     ""|*[!0-9]*)
-      echo "⚠️ node 无法获取版本（$(command -v node)）——westock 系不可用，将走公开源降级" ;;
+      echo "⚠️ node 无法获取版本（$(command -v node)）——量化研究与 westock 系不可用，只能查看公开行情" ;;
     *)
       if [ "$node_ver" -lt 18 ]; then
-        echo "⚠️ node v$node_ver 版本过低（westock 系需 ≥18）——westock 系不可用，将走公开源降级"
+        echo "⚠️ node v$node_ver 版本过低（量化研究与 westock 系需 ≥18）——只能查看公开行情"
       else
         echo "✅ node v$node_ver（$(command -v node)）"
       fi
       ;;
   esac
 else
-  echo "⚠️ node 未安装——westock-data/westock-tool 不可用；公开源降级模式（bash+curl）不受影响"
+  echo "⚠️ node 未安装——量化研究与 westock 系不可用；公开行情监控仍可使用"
 fi
 
 # --- 必需：awk（watchdog 行情解析）---
