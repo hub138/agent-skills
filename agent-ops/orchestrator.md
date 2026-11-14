@@ -72,7 +72,7 @@ out/        子任务自己的产出目录，提示词里要求它写这里
 | 实时看子任务做到哪 | ✅ | 读**会话 jsonl**：`status` 直接显示「事件数 / 最后事件时间」；也可 `tail -f <locate 给的会话文件>` |
 | 实时看 stdout | ⚠️ 默认不行 | stdout 重定向到文件时是**块缓冲**：实测前 24 秒 0 字节，进程结束才一次性写入 11.9KB。要实时只能给伪终端：`script -q -c "<命令>" run.log` |
 | 给**已结束**任务追加指令 | ✅ 可靠 | `agentctl send <name> "新指令"`：带原会话 `--resume`，实测能正常返回「已收到」并写入 jsonl |
-| 给**运行中**任务插话 | ❌ 不可靠 | 实测并发 resume 只把新消息 append 进 jsonl，原进程已按旧上下文跑完，**不会处理它**；必须等进程结束再 send |
+| 给**运行中**任务插话 | ⚠️ 用管理者 | **直接 `send` 不可靠**（并发 resume 只把消息 append 进 jsonl，原进程不处理）。正确路径是 `manager.py` 把 `guidance.md` 写进任务目录，等下次重排/续接注入；或按 PID TERM 后续接（保留会话与 `progress.md`）。上游 `supervise_agents.py` 的 nudge 就是这条 |
 | 会话被清理后还想续接 | ⚠️ 降级 | `--resume-create-missing` 只有 **2.183.0** 有（语义：目标会话不存在时用同一 id 新建空会话，而不是失败）；2.132.0 没有，`agentctl` 检测秒退后自动降级新建 |
 
 **为什么 jsonl 比 stdout 可靠**：会话文件是 append 写，实测 6 秒内就出现并持续追加；stdout 走 Node 的块缓冲，非 TTY 时要攒满才 flush。所以监控状态看 jsonl，不要看 `run.log` 的大小。
@@ -206,7 +206,7 @@ python3 $T daemon --concurrency 2 --interval 30 &
 | 审计项 | 复现证据 | 修复 |
 |---|---|---|
 | **抢占竞态** | 并发上限=1，两个 `tick` 同时跑 → 同一任务被 `spawn` **2 次**（`attempts=2`） | `BEGIN IMMEDIATE` 拿 SQLite 写锁 + `UPDATE ... WHERE status='queued'` 判 `rowcount`，commit 之后才起进程 |
-| **租约误判** | 进程还活着但租约过期 → 被置回 `queued`，会再起一个进程 | `tick` 每轮给存活进程**续租**；回收时也先验 `/proc/<pid>` |
+| **租约误判** | 进程还活着但租约过期 → 被置回 `queued`，会再起一个进程 | `tick` 每轮给存活进程**续租**；回收时也先验进程存活（跨平台走 `platform_util.pid_exists`） |
 | **事务冲突** | 回收阶段已有隐式事务，再 `BEGIN IMMEDIATE` → `cannot start a transaction within a transaction` | 显式 `conn.commit()` 后再开事务 |
 | **exit 不落盘** | `codebuddy` 超时清理 `killpg` 整个进程组，bash 包装层被连带杀掉，`exit` 永远空 | 改为**独立 Python worker 进程**持有 `Popen` 并写 pid/exit，两层 `start_new_session` 隔离；不用 bash 包装 |
 | **session 首次 `--resume`** | 首次运行 session 为空 → `No conversation found` 启动即退 | 首次 `--session-id`，重试才 `--resume`；会话丢失自动换新 session 重排 |
@@ -314,7 +314,7 @@ python3 $ACT dispatch --name scan-b --backend codebuddy --model free-model --pro
 | `dispatch` 立即失败 | `logs <name>` 里的 stderr | 模型名不在白名单 / prompt 为空 / workdir 不存在 |
 | 状态一直 `running` 但没产出 | `locate` 的会话文件 mtime、`out/progress.md` | `-p` 输出多在结束时落盘，日志不动是正常的；看进度文件 |
 | `resume` 后秒退 | `run.log` 是否含 `unknown option` / `No conversation` | 2.132.0 不支持 `--resume-create-missing`；工具已自动降级新建 |
-| `send` 返回 3 | 任务是否还在跑 | 运行中插话不可靠（消息不会被处理），等结束再 send |
+| `send` 返回 3 | 任务是否还在跑 | 运行中直接发不可靠；用 `guidance.md` 注入，或按 PID TERM 后续接 |
 | 想看实时 stdout | `run.log` 是否 0 字节 | 块缓冲所致；改看会话 jsonl，或用 `script -q -c` 拿 PTY |
 | 会话文件找不到 | `~/.codebuddy/projects/*/<sid>.jsonl` | `--workdir` 变了会导致 slug 变，用 `locate` 看当前值 |
 | `watch` 不拉起 | `restarts` 是否达 `max_restarts`、是否在冷却期 | 调大上限或缩短 `AGENTCTL_COOLDOWN` |

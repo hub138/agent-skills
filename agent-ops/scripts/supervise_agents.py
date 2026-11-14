@@ -25,6 +25,8 @@
 """
 from __future__ import annotations
 
+import platform_util as util
+
 import argparse
 import json
 import os
@@ -38,7 +40,8 @@ import supervisor as S          # 复用 PROMPT / ask_model / SUPERVISOR_MODEL
 import agentctl as A            # 复用 registry 与 session_file，避免自己猜会话路径
 
 AGENT_ROOT = Path(os.environ.get('AGENTCTL_ROOT', Path.home() / '.codebuddy/agentctl'))
-CB_BIN = os.environ.get('CODEBUDDY_CLI_BIN', '/usr/local/bin/codebuddy')
+CB_BIN = util.resolve_bin('codebuddy', 'CODEBUDDY_CLI_BIN',
+                       ('/usr/local/bin/codebuddy', '/opt/homebrew/bin/codebuddy'))
 PROJ_ROOT = Path(os.environ.get('CODEBUDDY_PROJECTS',
                                 Path.home() / '.codebuddy/projects'))
 LAST_ASK = Path('/tmp/agentctl_supervisor_last_ask.json')

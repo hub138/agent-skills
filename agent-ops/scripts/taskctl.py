@@ -22,6 +22,9 @@
 """
 from __future__ import annotations
 
+import platform_util as util
+import model_policy as policy
+
 import argparse
 import hashlib
 import json
@@ -40,8 +43,10 @@ from pathlib import Path
 HOME = Path(os.environ.get("AGENTCTL_HOME", Path.home() / ".codebuddy/agentctl"))
 DB = Path(os.environ.get("TASKCTL_DB", HOME / "tasks.db"))
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates/tasks"
-CB_BIN = os.environ.get("CODEBUDDY_CLI_BIN", "/usr/local/bin/codebuddy")
-KNOT_BIN = os.environ.get("KNOT_CLI_BIN", "<knot-cli 路径>")
+CB_BIN = util.resolve_bin("codebuddy", "CODEBUDDY_CLI_BIN",
+                       ("/usr/local/bin/codebuddy", "/opt/homebrew/bin/codebuddy"))
+KNOT_BIN = util.resolve_bin("knot-cli", "KNOT_CLI_BIN",
+                         ("<knot-cli 路径>",))
 CB_PROJECTS = Path.home() / ".codebuddy/projects"
 
 DEFAULT_CONCURRENCY = int(os.environ.get("TASKCTL_CONCURRENCY", "2"))
@@ -127,24 +132,15 @@ CREATE TABLE IF NOT EXISTS kv (
 
 BACKOFF = (2, 4, 8, 16, 32, 60, 120, 300)
 
-# 用户硬红线：只允许 x0.00 或 ≤0.15 credits。
-ALLOWED_MODELS = {
-    "free-model", "free-model-flash", "small-model", "echo", "small-model", "free-model", "free-model-preview",
-    "gpt-6-luna", "glm-5.3-flash-ioa", "minimax-m3.1-flash",
-    "deepseek-v4.1-flash", "mimo-v2.6-pro", "gpt-5.6-luna",
-}
+# 模型红线唯一权威源见 model_policy.py（与 agentctl 共用）
+ALLOWED_MODELS = policy.CB_ALLOWED
 
 
 def assert_model(model: str, backend: str = "codebuddy") -> None:
-    m = (model or "").strip()
-    # knot 侧这些 ID 走免费额度，不受 codebuddy credits 红线约束
-    if backend == "knot":
-        if m not in ("free-model", "small-model", "free-model-preview", "glm-5.3", "glm-5.3-flash",
-                     "deepseek-v4-flash", "deepseek-v4-pro"):
-            raise SystemExit(f"knot 模型 {m!r} 不在允许清单")
-        return
-    if m not in ALLOWED_MODELS:
-        raise SystemExit(f"拒绝：模型 {m!r} 超出 0.15 credits 红线。允许 {sorted(ALLOWED_MODELS)}")
+    """发给 CLI 前硬拒绝；实现与单测都在 model_policy.py。"""
+    policy.assert_model(model, backend)
+
+
 
 
 def validate_result(d) -> str | None:
@@ -664,7 +660,7 @@ def cmd_tick(args) -> int:
                 wpid = int((Path(r["outdir"]).parent / "pid").read_text().strip())
             except Exception:
                 wpid = 0
-            if wpid and Path(f"/proc/{wpid}").exists():
+            if util.pid_exists(wpid):
                 conn.execute("UPDATE tasks SET lease_until=? WHERE id=?",
                              (now() + LEASE_SECONDS, r["id"]))
                 continue
@@ -739,7 +735,7 @@ def cmd_tick(args) -> int:
                 wpid = int((base / "pid").read_text().strip())
             except Exception:
                 wpid = 0
-            if wpid and Path(f"/proc/{wpid}").exists():
+            if util.pid_exists(wpid):
                 # 进程活着 ≠ 在干活。会话文件/进度文件长时间不增长就是假死。
                 full = conn.execute("SELECT * FROM tasks WHERE id=?",
                                     (r["id"],)).fetchone()
@@ -802,7 +798,7 @@ def cmd_tick(args) -> int:
                     pid = int((base / "pid").read_text().strip())
                 except Exception:
                     pid = 0
-                if pid and not Path(f"/proc/{pid}").exists():
+                if pid and not util.pid_exists(pid):
                     code = -9
                 else:
                     continue

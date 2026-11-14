@@ -15,6 +15,8 @@
 """
 from __future__ import annotations
 
+import platform_util as util
+
 import argparse
 import json
 import os
@@ -60,7 +62,7 @@ def check_agentctl():
         pid = t.get('pid')
         ok = False
         if pid:
-            ok = os.path.exists(f'/proc/{pid}')
+            ok = util.pid_exists(pid)
         if ok:
             alive.append(name)
     total = len(tasks)

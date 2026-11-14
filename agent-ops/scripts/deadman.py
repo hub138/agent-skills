@@ -24,6 +24,8 @@ DB 支持 mysql（延迟导入 pymysql）与 sqlite（内置），配置见 temp
 """
 from __future__ import annotations
 
+import platform_util as util
+
 import argparse
 import glob
 import json
@@ -57,17 +59,17 @@ def fmt_duration(hours):
 
 
 def process_alive(pattern: str) -> bool:
-    for pid in os.listdir("/proc"):
-        if not pid.isdigit():
-            continue
-        try:
-            with open(f"/proc/{pid}/cmdline", "rb") as f:
-                cmd = f.read().decode("utf-8", "replace").replace("\x00", " ")
-        except OSError:
-            continue
-        if pattern in cmd and "grep" not in cmd and "deadman" not in cmd:
-            return True
-    return False
+    """按 cmdline 找进程；平台差异统一由 platform_util 处理（2026-11-15）。
+
+    macOS 没有 /proc，早期版本直接 os.listdir('/proc') 会抛 FileNotFoundError，
+    连带 check_log_freshness / run_checks_isolation 两个用例失败。
+    平台不可探测时按「未知」保守处理，不要静默当成进程已死。
+    """
+    if not util.probe_available():
+        return False
+    return util.process_alive(pattern)
+
+
 
 
 def newest_mtime(pattern: str):

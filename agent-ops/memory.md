@@ -306,3 +306,13 @@ python3 $S daemon --interval 300   # 常驻，每 5 分钟一轮
 - 事件名保留 `supervisor_nudge`（历史连续性），人设与文档已是管理者。
 - `supervise_agents` / `supervise_jobs` 两个后端暂未管理者化（无 refine/decisions 留痕）——标注待做。
 - 测试：`tests/test_manager.py` 5 项（goal 生命周期/决策留痕/重渲染注入/history/解析防呆），全 mock 不调真实模型。
+
+## 子 agent 输出契约补充：写明收工（2026-11-15）
+
+`progress.md` 除了「已完成 / 进行中 / 待办」和落盘数字，最后必须有一段**收工声明**：
+`已完成，无遗留` 或 `未完成：<还差什么 / 为什么>`。
+没有这段，主 agent 无法区分「还在推进」和「已经做完但在无限自检」——
+实测有任务在只差一次文件拷贝的状态下空转 3 小时。
+配合 `templates/tasks/_done-contract.md` 与 `orchestrator.md` 三·十二一起用；
+能力在上游 `plan --goal` / `manager.py` 里，不需要额外参数。
+

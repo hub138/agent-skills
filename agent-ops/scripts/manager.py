@@ -28,6 +28,8 @@
 """
 from __future__ import annotations
 
+import platform_util as util
+
 import argparse
 import json
 import os
@@ -43,7 +45,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import taskctl as T  # noqa: E402  复用 SQLite 与任务目录约定
 
-CB_BIN = os.environ.get("CODEBUDDY_CLI_BIN", "/usr/local/bin/codebuddy")
+CB_BIN = util.resolve_bin("codebuddy", "CODEBUDDY_CLI_BIN",
+                       ("/usr/local/bin/codebuddy", "/opt/homebrew/bin/codebuddy"))
 # 用户 2026-11-12 最终口径：监督者默认 free-model（codebuddy 侧写 free-model），不再用偏弱的 small-model。
 # 要换模型设 SUPERVISOR_MODEL 即可（如 SUPERVISOR_MODEL=small-model）。
 SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "free-model")
@@ -183,7 +186,7 @@ def build_task_snapshot(r: sqlite3.Row) -> str:
         pid = int((base / "pid").read_text().strip())
     except Exception:
         pid = 0
-    alive = bool(pid and Path(f"/proc/{pid}").exists())
+    alive = util.pid_exists(pid)
     res = ["  " + x for x in _tail(out / "result.json", n=4)] or ["  (无)"]
     sess = ["  " + x for x in _session_tail(r["session_id"])] or ["  (无)"]
     # 管理者读全部进度：≤400 行全文；更长则头 30 + 尾 200（全局重写机制管着膨胀）

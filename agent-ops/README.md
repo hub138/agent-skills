@@ -53,6 +53,25 @@ python3 $T history <任务名>       # 全史：做了什么、为什么、管�
 
 需要智能体 CLI（如 `codebuddy`，模型可配置）真正执行子任务；队列、监督、留痕本身零依赖。
 
+### 你只给一个目标，就够了
+
+`--goal` 后面跟**一句人话**即可，不需要写提示词、不需要懂任务类型、不需要列步骤：
+
+```bash
+python3 $T plan --goal "给这个服务补一组回归测试，覆盖超时和重试" --repo /data/project
+python3 $T plan --goal "找出上周发版后偶发 502 的原因，给出可复现步骤" --repo /data/project
+```
+
+`plan` 会把这句话拆成若干带**交付物**的具体任务，渲染到 `templates/tasks/` 的模板里；
+`manager.py` 会在读到进度后继续微调目标、纠正跑偏、把决策全部写进 `history`。
+
+目标写得好不好，只影响一件事：**AI 能不能判断「什么叫做完」**。
+所以写目标时带上你真正在意的那个结果（「有可复现步骤」「有前后对照」「有未覆盖项清单」），
+比堆规则清单有用得多。实测：只发「13 条铁律」而不讲因果和完成判据的子任务，
+会在只差一次文件拷贝的状态下空转 3 小时（见 `FIELD-NOTES.md` 第 31 条）。
+模板里已经内置了「讲因果 / 完成判据 / 降级也是合格交付 / 别无限自检」的引导，
+**人给目标、AI 拆任务、AI 自己判断收工**，这条链路是默认行为，不需要额外参数。
+
 ## 命令速查
 
 | 命令 | 干什么 |
@@ -65,6 +84,7 @@ python3 $T history <任务名>       # 全史：做了什么、为什么、管�
 | `manager.py snapshot / once / daemon` | 管理者：只看快照 / 跑一轮 / 常驻 |
 | `deadman.py --config <json>` | 死士巡检（异常才通知，正常只写日志） |
 | `selfcheck.py` | 体检本 skill 全部能力是否在岗 |
+| `doccheck.py` | 文档数字与代码事实对账（测试数 / 条数 / 文件数 / 命令引用） |
 
 ## 文档地图（按需深入）
 
@@ -74,10 +94,17 @@ python3 $T history <任务名>       # 全史：做了什么、为什么、管�
 | `orchestrator.md` | 编排细节：派发/看护模式、上下文预算、管理者与监督后端 |
 | `memory.md` | 上下文工程与记忆：三层记忆、压缩与 rollover、管理者决策留痕 |
 | `harness-lessons.md` | 设计对比：9 个开源 harness 横向研究，哪些抄了哪些没抄为什么 |
-| `FIELD-NOTES.md` | 22+ 条实战坑（每条：现象→根因→修法→验证），改代码前先查 |
-| `tests/` | 17 项回归测试，`python3 -m pytest tests/ -q` 一键验证 |
+| `FIELD-NOTES.md` | 实战坑全量记录（每条：现象→根因→修法→验证），条数以 `doccheck.py` 对账为准，改代码前先查 |
+| `tests/` | 回归测试，`python3 -m pytest tests/ -q` 一键验证（项数以 `doccheck.py` 对账为准） |
 
 ## 边界（诚实版）
+
+**平台**：Linux 与 macOS 都支持，机器类型自动识别（`scripts/platform_util.py`）：
+进程探测 Linux 读 `/proc`、macOS/其它用 `ps`；`codebuddy` / `knot-cli` 的二进制路径按
+「环境变量 > 候选路径 > PATH」解析，不再写死 `/usr/local/bin`（macOS 实测真路径在
+`/opt/homebrew/bin`）。Linux 容器未挂载 `/proc` 时退回 `os.kill`，不把活进程误判成死的；
+其它平台探测能力不足时按「未知」保守处理。`pytest tests/ -q` 在 macOS 全量通过，
+其中含 linux/macos/other 三分支、模型红线、文档事实自检的专项用例。
 
 - 并发上限是**本项目内部量**（每模型 2 路、多模型全局 10），不做全局配额推算。
 - 多机共享同一队列需要换 Postgres（存储层已隔离，SQLite 不适合多机写）。

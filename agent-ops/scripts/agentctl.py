@@ -21,6 +21,11 @@
 """
 from __future__ import annotations
 
+import platform_util as util
+import model_policy as policy
+
+import platform_util as util
+
 import argparse
 import fcntl
 import json
@@ -38,16 +43,14 @@ HOME = Path(os.environ.get("AGENTCTL_HOME", Path.home() / ".codebuddy/agentctl")
 REGISTRY = HOME / "registry.json"
 LOCK = HOME / "registry.lock"
 
-CB_BIN = os.environ.get("CODEBUDDY_CLI_BIN", "/usr/local/bin/codebuddy")
-KNOT_BIN = os.environ.get("KNOT_CLI_BIN", "<knot-cli 路径>")
+CB_BIN = util.resolve_bin("codebuddy", "CODEBUDDY_CLI_BIN",
+                       ("/usr/local/bin/codebuddy", "/opt/homebrew/bin/codebuddy"))
+KNOT_BIN = util.resolve_bin("knot-cli", "KNOT_CLI_BIN",
+                         ("<knot-cli 路径>",))
 CB_PROJECTS = Path.home() / ".codebuddy/projects"
 
-# 用户 2026-11-12 红线：只允许 x0.00 或 ≤0.15 credits。
-ALLOWED_MODELS = {
-    "free-model", "free-model-flash", "small-model", "echo", "small-model", "free-model", "free-model-preview",
-    "gpt-6-luna", "glm-5.3-flash-ioa", "minimax-m3.1-flash",
-    "deepseek-v4.1-flash", "mimo-v2.6-pro", "gpt-5.6-luna",
-}
+# 模型红线唯一权威源见 model_policy.py（与 taskctl 共用）
+ALLOWED_MODELS = policy.CB_ALLOWED
 DEFAULT_MAX_RESTARTS = int(os.environ.get("AGENTCTL_MAX_RESTARTS", "5"))
 COOLDOWN = int(os.environ.get("AGENTCTL_COOLDOWN", "60"))
 
@@ -178,13 +181,8 @@ def task_dir(name: str) -> Path:
 
 
 def alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError):
-        return False
+    """平台差异统一由 platform_util.pid_exists 处理。"""
+    return util.pid_exists(pid)
 
 
 def read_int(path: Path) -> int | None:

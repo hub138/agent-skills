@@ -43,7 +43,10 @@ description: 本机 AI agent 编排与模型运维。当一个 agent 要调度�
 3. **并发是本项目内部量**：每模型最多 2 路、多模型合计全局上限 10；**不是**对全局容量的推算，不做全局配额让路。监督者按定时 / 事件触发，一次调用，**不占 worker 并发槽**。
 4. **429 感知分两条通道**：codebuddy 有重置时刻 → 整模型冷却；knot 无通知 → 降并发 + 指数静默。两种恢复逻辑不能混用（详见 §十二）。
 
-## 〇、文件导航（14 个有效文件；另有 3 个「已废弃」兼容文件，内容为空指引）
+## 〇、文件导航
+
+> 不写死文件数——新增模块/模板后数字立刻过时。权威清单以 `ls scripts/*.py tests/test_*.py templates/tasks/*.md` 为准；
+> 文件数会随新增模块变化，由 `scripts/doccheck.py` 对账，不在这里写数字。`README.md` 是人类向入口，先读它。
 
 | 文件 | 职责 |
 |---|---|
@@ -56,17 +59,22 @@ description: 本机 AI agent 编排与模型运维。当一个 agent 要调度�
 | `knot_rate_budget.py` | 官方口径速率预算、`recommend_workers`、`AdaptiveConcurrency` |
 | `orchestrator.md` | **用 1 个 agent 调度多个 CLI 子 agent**：dispatch/status/locate/resume/watch、会话绝对路径、编排模式、提示词模板 |
 | `scripts/agentctl.py` | 交互式多 agent 派发（dispatch/status/brief/locate/resume/send/watch） |
+| `scripts/manager.py` / `supervisor.py` | 管理者（goal refinement / nudge / decisions 留痕）与监督后端 |
+| `scripts/platform_util.py` | **机器类型自动识别**：进程探测 + CLI 二进制解析（Linux/macOS/其它） |
+| `scripts/model_policy.py` | **模型红线唯一权威源**：codebuddy/knot 允许清单与硬拒绝 |
+| `templates/tasks/_done-contract.md` | 任务提示词写作规范：讲因果 / 完成判据 / 降级是合格交付 / 别无限自检 |
 | `scripts/taskctl.py` | **几十万任务级队列**（SQLite+租约+worker 监督+模板化提示词）：`add --goal` / `plan --goal` / `tick` / `daemon` / `brief` / `stats` |
 | `templates/tasks/` | 任务类型模板（generic / compare-commit / reproduce-bug / fix-bug / research），用户不用写 prompt |
 | `watchdog.md` | **长任务看护完整手册**：任务形态判断、jobs.json 全字段、prompts 三种模式、提示词模板、时间参数、沙箱、排查 |
 | `scripts/watchdog.sh` + `templates/` | 看护脚本与 jobs.json 模板（原 watchdog（旧版），已完全并入） |
 | `memory.md` | **上下文工程与记忆**：三层记忆、主 agent 上下文预算、子 agent 输出契约、压缩/rollover、交接协议 |
 | `scripts/selfcheck.py` | 一键体检 8 项能力（在用/闲置/误配），改完先跑它 |
+| `scripts/doccheck.py` | **文档事实自检**：README/SKILL 里的测试数、实战坑条数、文件数、命令引用与代码对账；反例可自测 |
 | `scripts/deadman.py` | 死士检查通用件（配置驱动，见三·十） |
 | `scripts/supervise_agents.py` / `supervise_jobs.py` | 监督的 agentctl 后端与 cron 脚本后端（见三·十一） |
 | `scripts/desensitize.py` | 生成公开脱敏版（仅内部版有；公开版无此文件） |
 | `templates/deadman.example.json` | 死士检查配置示例（6 种 check 类型，DB 双支持 mysql/sqlite，通知走 stdin） |
-| `tests/` | 回归测试（taskctl 阈值校验/契约校验/假死判定/compaction 留痕），`python3 -m pytest tests/ -q` |
+| `tests/` | 回归测试（taskctl / manager / deadman / platform_util / model_policy / doccheck），`python3 -m pytest tests/ -q`；项数以 `doccheck.py` 对账为准 |
 | `FIELD-NOTES.md` | **实战补丁记录**：用本 skill 真实跑任务踩到的坑与修法（监督器三后端、cron python 版本、企微拆条、完成 vs 卡住的区分……每条附现象/根因/验证），新坑先查这里 |
 | `dsh-lessons.md` | DeepSeek Super-agent 学习笔记：领域模型、Ticket 状态机、stored work/幂等/保序/已读未读，以及我们采纳与不采纳的判断 |
 
@@ -295,7 +303,10 @@ python3 $ACT watch --quiet   # 挂 cron，批量续接挂掉的任务
 ```
 
 - **实时看进度**：读会话 jsonl（`status` 给出事件数与最后事件时间），不要看 `run.log` 大小——stdout 重定向是块缓冲，结束才 flush；要实时 stdout 用 `script -q -c`。
-- **追加输入**：已结束的任务用 `send`（带 `--resume`，实测可靠）；运行中的任务不要插话，消息会写进 jsonl 但不会被处理。
+- **追加输入**：已结束/`queued` 任务用 `send`（带 `--resume`，实测可靠）；运行中任务不要直接 `send`（消息只进 jsonl 不被处理），改用 `manager.py` 的 `guidance.md` 注入，或按 PID TERM 后续接。
+- **人给目标、AI 拆任务**：`taskctl plan --goal "一句话"` 就够了，不需要人写提示词。
+  任务提示词要**先讲因果、再给红线、并写明什么叫做完**（`templates/tasks/_done-contract.md`）；
+  只发规则清单会让子 agent 无限自检不知道收工（实测 3 小时空转，见 `FIELD-NOTES.md` 第 31 条）。
 - **会话路径**：codebuddy 的 `--session-id` 决定文件名，落在 `~/.codebuddy/projects/<workspace-slug>/<session-id>.jsonl`；knot 没有 jsonl，看任务目录的 `run.log`。`locate` 直接给绝对路径。
 - **任务目录**：`~/.codebuddy/agentctl/<name>/{prompt.md,run.log,pid,exit,out/}`。
 - **提示词必须要求写 `progress.md`**：上下文压缩后只有落盘进度能恢复，resume 全靠它。
@@ -341,3 +352,23 @@ python3 $ACT watch --quiet   # 挂 cron，批量续接挂掉的任务
 - 人只读 `stats`/`brief`，`escalate` 才需介入。
 
 真实实测：模型识别出「步骤2 同一报错重复 3 次 = 重试死循环」，给出「先诊断根因再继续」的 nudge 指令，45.8s 完成，`guidance.md` 落盘且注入下一轮 prompt 验证为 True。详见 `memory.md` 第十节。
+## 改 agent-ops 脚本后的提交前自检（2026-11-15，第 33 条事故沉淀）
+
+`pytest` 全绿 + `--help` 能跑 **不等于 CLI 可用**：`--help` 由 argparse 提前返回，
+不执行业务分支。曾经贪婪正则吞掉 8 个函数却全部验证通过，坏版本还被 push 了。
+
+提交前必跑（缺一不可）：
+```
+python3 -m pytest tests/ -q            # 库函数 + 业务入口冒烟（test_cli_smoke.py）
+python3 scripts/doccheck.py            # 文档数字 / 导航表 / 单一权威源
+python3 scripts/agentctl.py status     # 真业务路径，必须打印任务表而不是 traceback
+python3 scripts/agentctl.py status --json | python3 -m json.tool >/dev/null
+```
+
+若用正则改过函数体，还要对比改动前后的顶层函数集合：
+```
+python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M)) ..."
+```
+或直接用 `tests/test_cli_smoke.py::test_agentctl_has_all_core_functions` 兜底。
+**优先用精确字符串替换，不要用 `[\s\S]*?` 跨函数匹配。**
+

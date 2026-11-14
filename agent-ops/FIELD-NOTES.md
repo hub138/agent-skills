@@ -531,7 +531,7 @@ done  deep_all       日志已到[76/76]，76条全部处理完
 **判定方式全部是客观证据**，不看文档：
 | 能力 | 判据 |
 |---|---|
-| agentctl | `registry.json` 里有 task 且 `/proc/<pid>` 存在 |
+| agentctl | `registry.json` 里有 task 且进程存活（跨平台 `platform_util.pid_exists`） |
 | supervisor | crontab 是否含 `supervisor.py` / 是否有 taskctl 库 |
 | supervise_agents / supervise_jobs | crontab + 日志大小 |
 | watchdog | `jobs.json` 里 `enabled` 数量 + cron |
@@ -855,7 +855,103 @@ MediaFoundation（播视频）—— 触发动作本身就是日常操作，用�
 - 报告：正文无重复段落（只有表格分隔线重复，属正常）／顶部摘要与各章数字 5 项全部对得上库；
 - 提示词：本质原则只注入 1 次（不重复），物理条件在原则与 S3 各 1 次（不同作用，保留）。
 
-## 31. 能力坏了 ≠ 任务失败：审计"谁来感知感知者"
+---
+
+## 31. 规则清单让子 agent 空转 3 小时；输入提示词先讲因果（2026-11-15）
+
+**现象**：派 5 路出题任务，提示词是「13 条铁律」规则清单。其中 `fix4-ag5` 跑了 3 小时、
+600+ 事件、状态一直 working。看会话尾部才发现它其实早做完了：
+四档里等价改写 3/4，唯一挂项是「忘了把 ROOTCAUSE.md 拷进测试目录」，
+它自己都写了 `I forgot to copy ROOTCAUSE.md`，却继续在
+「Let me do one last check」「最后核对一下」之间循环。
+
+**根因**：提示词只给条款，没给「为什么」和「什么叫做完」。
+模型不知道哪条已满足、更不知道可以收工；门禁能拦错，拦不住绕圈。
+用户点醒：「AI 都和你一样，你能懂得他们都能懂」——讲清因果它自己会推导。
+
+**修法（以 md 引导为主；工具能力上游已备齐）**：
+- `templates/tasks/_done-contract.md`：四段（真实事故的因果 / 四条完成判据 /
+  归档降级是合格交付 / 时间纪律），含「重复核对不产生新信息」「补一次文件搬运即可，不要再开一轮探索」。
+- 上游本就有 `taskctl plan --goal`（一句话拆任务）、`manager.py` 的 goal refinement 与
+  `guidance.md` 注入、`supervise_agents.py` 的 nudge。**真正缺的不是插嘴能力，是输入 md 没告诉
+  AI「为什么」和「什么叫做完」**。所以本次主场是模板与 README，不重复造 CLI 轮子。
+
+**验证**：对 4 个 queued 任务直接 `send`、对 1 个 working 任务先按 PID TERM 再 `send`，
+5 路事件数全部增长（565/622/701/647/493），PROGRESS 里出现审判器与收工字样；
+不是假绿灯（`send` 返回 0 也可能只是入队）。
+5 道重做题最终单题审判 5/5 FAIL 0。
+
+**顺带修的预存 bug（平台适配第二轮）**：
+- `deadman.py::process_alive` 直接 `os.listdir("/proc")`，macOS 上抛 FileNotFoundError；
+- 4 个脚本写死 `CB_BIN=/usr/local/bin/codebuddy`，而 macOS 真路径在
+  `~/.nvm/.../bin` 或 `/opt/homebrew/bin`，**派单会打到不存在的二进制**；
+- 统一到 `platform_util.resolve_bin`（环境变量 > 候选路径 > PATH）与
+  `pid_exists` / `process_alive` / `os_kind`，并补 `tests/test_platform_util.py`
+  （11 项，覆盖 linux/macos/other 与「Linux 但 /proc 未挂载」）。
+- 全量 `pytest tests/ -q` → **28 passed**。
+
+**教训**：机器类型自适应不能只改「报错那一行」。要枚举同形态的全部实例
+（6 处 `/proc` + 6 处 BIN 常量），一次收敛到统一模块，再用跨分支单测证明
+三种平台都走对；只在本机手测通过，等于只证明了 macOS 这一条分支。
+
+**教训**：判断任务是否正常，不能只看「事件在涨 / 进程活着」；
+要看最近 N 条事件有没有产生**新的落盘文件或新的数字**。这条已写进
+`orchestrator.md` 三·十二作为监督侧后续增强方向。
+
+## 32. 「成熟」的判据：枚举同形态实例 → 单一权威源 → 跨分支单测 → 文档对账（2026-11-15）
+
+用户要求「其他类似的，都成熟一点」。按第 30 条「一次性改到位」的方法扫全仓，
+发现三类半吊子，处理方式一致：
+
+| 半吊子 | 现象 | 收敛 |
+|---|---|---|
+| 模型红线 | `agentctl.py` 与 `taskctl.py` 各写一份逐字相同的 `ALLOWED_MODELS`，零单测，改一处忘另一处就漂移 | `scripts/model_policy.py` 唯一权威源（CB/KNOT 两套清单 + `assert_model`），两脚本引用；`tests/test_model_policy.py` 8 项含「派单入口真的会拒绝贵档」 |
+| 判活 | `agentctl.alive()` 与 `platform_util.pid_exists()` 语义重复 | `alive()` 变薄封装，10 处调用点不动 |
+| 文档数字 | README 写「28 项回归测试」实际 36；SKILL.md 写「14 个有效文件」实际 20+ | 新增 `scripts/doccheck.py`：跑 pytest collect 对账测试数、FIELD-NOTES 最大编号、命令速查引用的脚本是否存在、导航表是否漏新模块、是否又出现第二份白名单 |
+
+**过程中被自己的门禁连抓三次**（这正是它该做的）：
+加 `doccheck.py` → 脚本数 11→12；加 `test_doccheck.py` → 测试数 36→40；
+README 故意改错数字 → 立刻报「写 99 项，实际 36 项」。
+**结论：文档里任何写死的计数都会过时**，最终改成动态表述
+（「项数以 doccheck.py 对账为准」），门禁反过来检查「有没有又写死数字」和「导航表漏没漏模块」。
+
+**没做的**：`_tail` 在 4 个脚本里两份近似实现（宽度 160/200 不同），
+收敛收益小、改动面大，判定为过度重构，保留现状并写明理由。
+**成熟 ≠ 把所有相似代码都抽成模块**，判据是「会不会漂移、会不会误判、有没有单测证明」。
+
+**验证**：`pytest tests/ -q` 40/40；`doccheck.py` OK；`selfcheck.py` 8 项正常。
+
+## 33. `--help` 冒烟是假绿灯：贪婪正则吞掉 8 个函数，提交出去才发现（2026-11-15）
+
+**现象**：为收敛模型白名单，用正则替换 `agentctl.py::alive` 时写成
+`re.search(r'def alive...[\s\S]*?\n    return False\n')`，贪婪匹配一直吃到后面，
+连带删除 `read_int` / `session_file` / `session_events` / `tail_session` / `dur` /
+`now_iso` / `build_cmd` / `spawn` / `launch_task` 共 8~9 个顶层函数。
+当时验证做了 `--help` 冒烟（6 个入口全 OK）+ `pytest 40/40` + `doccheck OK`，
+**全部通过**，但 `agentctl status` 直接 `NameError: read_int`、派单会打不到任何进程。
+更糟的是这个坏版本被 commit + push 了（`b56bae6`），下一轮要用 `status` 才发现。
+
+**根因**：
+1. `--help` 由 argparse 在 `main()` 早期返回，**根本不执行业务分支**；
+2. 现有 pytest 全测的是库函数，没有一条真的 spawn 一个 CLI 子命令去看它能否跑完；
+3. 大范围 `re.sub` 替换函数体时，没有前后对比「顶层函数集合是否守恒」。
+
+**修法（三层，全部落地）**：
+- 从损坏前最后一个完整提交 `d71a318` 整体恢复 `agentctl.py`，只做三处**精确**替换
+  （加 import / 白名单常量换成引用 / alive 换成薄封装），不再用宽正则改函数体；
+- `tests/test_cli_smoke.py` 6 项：真的执行 `agentctl status`（含 `--json` 解析）、
+  `taskctl stats/list`、`selfcheck`、`doccheck`，断言输出里没有
+  `Traceback/NameError/AttributeError`；再加一条静态兜底，核对 11 个核心函数名都在；
+- 静态函数集合守恒检查：改完 `def` 层面必须与改动前一致（`test_agentctl_has_all_core_functions`）。
+
+**验证**：恢复后 `status` rc=0 且打印 5 路任务表；`pytest 46/46`；`doccheck OK`。
+
+**教训（写进 skill 用法）**：
+「冒烟」必须是**业务子命令真跑一遍**，不是 `--help`；
+提交前若动过 AST/函数体，要对比顶层符号集合；
+`pytest` 全绿不等于 CLI 可用——测试覆盖的是被 import 的函数，不是入口。
+
+## 34. 能力坏了 ≠ 任务失败：审计"谁来感知感知者"
 
 **现象**（2026-11-15）：TDSQL 静态扫描判定链路实际死了 **62 小时**（最后一次判定 11-12 17:44），
 但死士巡检每 2 小时都判"全部正常"。
