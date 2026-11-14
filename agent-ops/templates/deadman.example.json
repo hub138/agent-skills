@@ -81,6 +81,19 @@
       "pending_sql": "SELECT COUNT(*) FROM tasks WHERE status='queued'",
       "judged_sql": "SELECT COUNT(*) FROM tasks WHERE status IN ('done','failed') AND ended_at >= ?",
       "window_hours": 24
+    },
+    {
+      "type": "tcp_probe",
+      "name": "<依赖服务>-端口不可达",
+      "host": "<host>",
+      "port": 50051,
+      "timeout": 5
+    },
+    {
+      "type": "cmd_probe",
+      "name": "<能力>-初始化失败",
+      "cmd": "cd <项目目录> && <python> -c 'from x import Client; Client()'",
+      "timeout": 60
     }
   ]
 }

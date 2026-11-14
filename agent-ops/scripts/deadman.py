@@ -271,6 +271,52 @@ def check_notify_silence(c, now, dbs, th):
              "duration": "-"}]
 
 
+def check_tcp_probe(c, now, dbs, th):
+    """TCP 端口探活：验证依赖服务（数据库/微服务/推理服务）真的可达。
+
+    教训（2026-11-15）：只探"进程活/日志新"发现不了能力坏——
+    客户端库版本失配会让服务 62 小时不可用而进程日志全正常。
+    """
+    import socket
+
+    host = str(c.get("host", ""))
+    port = int(c.get("port", 0))
+    timeout = int(c.get("timeout", 5))
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        return [{"ok": True, "name": c["name"],
+                 "evidence": f"{host}:{port} 可达", "duration": "-"}]
+    except Exception as exc:
+        return [{"ok": False, "name": c["name"],
+                 "evidence": f"{host}:{port} 不可达：{type(exc).__name__}: {exc}",
+                 "duration": "-"}]
+
+
+def check_cmd_probe(c, now, dbs, th):
+    """命令探活：跑一条命令，退出码非 0 即异常（用于"能力能否初始化"）。
+
+    例：python -c "from x import Client; Client()" 验证依赖库版本兼容。
+    """
+    import subprocess
+
+    cmd = c["cmd"]
+    timeout = int(c.get("timeout", 60))
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+                           timeout=timeout)
+        if r.returncode == 0:
+            return [{"ok": True, "name": c["name"], "evidence": "探活命令成功",
+                     "duration": "-"}]
+        tail = (r.stderr or r.stdout or "").strip().splitlines()
+        return [{"ok": False, "name": c["name"],
+                 "evidence": f"RC={r.returncode} {tail[-1][:200] if tail else ''}",
+                 "duration": "-"}]
+    except Exception as exc:
+        return [{"ok": False, "name": c["name"],
+                 "evidence": f"{type(exc).__name__}: {exc}", "duration": "-"}]
+
+
 CHECKS = {
     "process_alive": check_process_alive,
     "db_freshness": check_db_freshness,
@@ -278,6 +324,8 @@ CHECKS = {
     "queue_stall": check_queue_stall,
     "log_freshness": check_log_freshness,
     "notify_silence": check_notify_silence,
+    "tcp_probe": check_tcp_probe,
+    "cmd_probe": check_cmd_probe,
 }
 
 
