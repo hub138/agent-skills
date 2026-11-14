@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI 批量调用的全局限流感知封装（多项目共用同一池）。
+"""knot-cli 批量调用的全局限流感知封装（本机免费通道，多项目共用）。
 
 直接用法：
     from knot_batch import batch, probe, global_load, recommend
@@ -9,29 +9,34 @@
     results = batch(items, lambda it: f"判定：{it}", models=MODELS, per_model=2)
     # results: [(item, model, verdict_dict|None, raw)]
 
-设计依据（见 `knot-limits.md`）：
-- 限制的是「每模型在途并发/速率」，不是整机总并发。必须按模型分桶 +
-  每模型 1~2 路；全局上限不分桶时失败率显著升高。
-- **两类 429**：有的通道 429 带「将在 … 重置」通知，可整模型冷却；
-  无通知的通道只能靠探测式降并发/回升，见 `knot-limits.md` 与 `AdaptiveConcurrency`。
-- 429 通常是「人+模型粒度」限频，**各模型相互独立，撞限流切模型有效**。
-  chat_once 单次不重试、短超时、失败返回 None 交下轮断点续跑；
-  batch() 带 fallback 链：撞 rate_limit 自动切下一个模型重试一次。
-- 批量任务不要用「长退避 + 多次重试」的封装：多路并发下前批撞墙全部退避，
-  worker 占满，后续发不出去。用短超时 + 失败留待下轮。
+设计依据（2026-11-12 凌晨实测，见本文第八节）：
+- 限制的是「每模型在途并发」，不是整机总并发。按模型分桶 + 每模型 2 路，
+  9 个模型共 18 路能跑；而全局 10 路不分桶时 48 条失败 32 条。
+- **knot 的 429 没有恢复时间通知**（codebuddy 才有「将在 … 重置」），所以
+  自动恢复靠探测式降并发/回升，见 `knot-limits.md` §4 与 `AdaptiveConcurrency`。
+- 官方口径（平台官方限流文档，仅适用于 knot）修正早期结论：429 是「人+模型粒度」限频，
+  **各模型相互独立，撞限流切模型有效**；旧注释写「换模型也没用」是错的。
+  chat_once 单次不重试、短超时 25s、失败返回 None 交下轮断点续跑仍然成立，
+  但 batch() 现在带 fallback 链：撞 rate_limit 自动切下一个模型重试一次。
+- 绝不使用 <业务调用点> 的封装做批量：retries=3 / timeout=180 / 退避 45s，
+  实测 18 路并发 4 分钟 0 条返回。
 """
 import os, re, json, subprocess, threading
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-KNOT = os.environ.get("KNOT_CLI", "knot-cli")
-# 候选模型池从环境变量注入（逗号分隔），不硬编码任何具体模型：
-#   MTR_KNOT_MODELS=model-a,model-b
-# 默认只取第一个；多模型时按条轮转，避免只用一个把额度用尽。
+KNOT = '<knot-cli 路径>'
+# 2026-11-12 用户口径：本项目只用免费 hy 系列，不用 deepseek / flash /
+# glm / kimi。其它 ID 在 SKILL.md 的 ID 表里仍作为「实测扣费 0」的事实
+# 保留（供别的项目按需选用），但默认批量封装不再自动回落到它们。
+# 用户 2026-11-12 最终口径：默认只用 free-model（codebuddy 侧写 free-model）；small-model 偏弱、不进默认池。
+# 可配置：MTR_KNOT_MODELS=free-model,small-model 显式加模型；每模型最多 2 路、全局上限 10。
 # 不做全局配额推演——别的项目也在用，算不清也没必要算。
 MODELS = [m.strip() for m in os.environ.get(
-    "MTR_KNOT_MODELS", os.environ.get("WORKER_MODEL", "default")).split(",") if m.strip()]
-PER_MODEL = int(os.environ.get("PER_MODEL_CAP", "2"))   # 本地单模型并发上限
+    "MTR_KNOT_MODELS", "free-model").split(",") if m.strip()]
+# 用户 2026-11-12 口径：一个模型全局 3 并发持续跑没问题（是全局，不是单项目），
+# 全局上限 10（多模型合计）；旧值「本项目总量 2」是语义误读，已作废。
+PER_MODEL = 2                    # 本项目单模型并发上限
 # 硬上限只在 knot_rate_budget 里定义一次，避免两个脚本改一处漏一处。
 try:
     from knot_rate_budget import PROJECT_HARD_CAP, GLOBAL_PER_MODEL_CAP, PER_MODEL_CAP
@@ -75,15 +80,15 @@ def global_load():
 def recommend():
     """只报全局占用情况，不做配额推演。
 
-    并发是本地量：每模型 1~2 路、多模型设全局上限（均可配置）。
-    其它项目占多少可以看一眼，但不用它反推本项目该开几路。
+    本项目口径：默认 free-model（可配 MTR_KNOT_MODELS），每模型最多 2 路，全局上限 10。
+    其它项目占多少可以看一眼，但不用它反推本项目该开几路（用户 2026-11-12：全局监控太麻烦，没让做）。
     """
     g = global_load()
     return {'global_chat': g['total'], 'project_hard_cap': PROJECT_HARD_CAP,
             'by_project': g['by_project'], 'by_model': g['by_model'],
             'orphan_pids': g['orphans'], 'suggest_workers': min(PROJECT_HARD_CAP, len(MODELS) * PER_MODEL_CAP),
             'models': MODELS,
-            'note': f"本项目 {','.join(MODELS)} 每模型 1~2 路、多模型设全局上限；孤儿按自己 PID 清，勿 pkill -f"}
+            'note': f"本项目 {','.join(MODELS)} 每模型最多 2 路、全局上限 10；孤儿按自己 PID 清，勿 pkill -f"}
 
 
 def parse_json(out):
@@ -192,7 +197,7 @@ def selfcheck():
     print('  按项目:', r['by_project'])
     print('  按模型:', r['by_model'])
     print('  孤儿 PID:', r['orphan_pids'])
-    print('  本项目并发:', r['suggest_workers'], '（每模型 1~2 路，多模型设全局上限）')
+    print('  本项目并发:', r['suggest_workers'], '（每模型 2 路，全局上限 10）')
     ok, raw = probe()
     print('  探活:', '正常' if ok else '异常', repr(raw[:100]))
     return ok

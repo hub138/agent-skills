@@ -180,9 +180,23 @@ def check_db_output(c, now, dbs, th):
         return out
     if n == 0 and win > 0:
         last = db.scalar(c.get("last_sql", "")) if c.get("last_sql") else None
-        out[0] = {"ok": False, "name": c["name"] + "-产出停摆",
-                  "evidence": f"近 {win}h 新增 0 条，最近一条 {render_ts(last)}",
-                  "duration": "-"}
+        # gate：候选队列为空时「无产出」是正常空闲，不是停摆（2026-11-14 实测：
+        # MRS/NDB 等不适用组件被反复捡起跑、失败、隔离，12h 零产出全是假告警）
+        gate = None
+        gsql = c.get("gate_sql")
+        if gsql:
+            try:
+                gate = int(db.scalar(gsql) or 0)
+            except Exception:
+                gate = None  # 查询失败按「有活」保守处理，宁可告警
+        if gate == 0:
+            out[0]["evidence"] = (f"近 {win}h 新增 0 条，但候选队列为空"
+                                  f"（{c.get('gate_desc') or '正常空闲'}），最近一条 {render_ts(last)}")
+        else:
+            out[0] = {"ok": False, "name": c["name"] + "-产出停摆",
+                      "evidence": f"近 {win}h 新增 0 条，最近一条 {render_ts(last)}"
+                                  + (f"，候选 {gate} 条待处理" if gate else ""),
+                      "duration": "-"}
     else:
         out[0]["evidence"] = f"近 {win}h 新增 {n} 条"
     return out

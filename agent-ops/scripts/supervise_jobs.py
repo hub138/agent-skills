@@ -36,7 +36,7 @@ from pathlib import Path
 # knot-cli 同样一句话 8 秒。差 7 倍，且 knot 是免费池。
 KNOT_BIN = os.environ.get('KNOT_CLI_BIN',
                           '<knot-cli 路径>')
-SUPERVISOR_MODEL = os.environ.get('SUPERVISOR_MODEL_KNOT') or os.environ.get('SUPERVISOR_MODEL') or os.environ.get('WORKER_MODEL', 'default')
+SUPERVISOR_MODEL = os.environ.get('SUPERVISOR_MODEL_KNOT', 'free-model')
 TIMEOUT = int(os.environ.get('SUPERVISOR_TIMEOUT', '180'))
 
 PROMPT = '''你是批量脚本任务的**监督者**。

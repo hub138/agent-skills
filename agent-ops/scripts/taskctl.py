@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   session_id   TEXT,
   outdir       TEXT,
   backend      TEXT NOT NULL DEFAULT 'codebuddy',
-  model        TEXT NOT NULL DEFAULT '',
+  model        TEXT NOT NULL DEFAULT 'free-model',
   workdir      TEXT,
   result_json  TEXT,
   error        TEXT,
@@ -127,16 +127,24 @@ CREATE TABLE IF NOT EXISTS kv (
 
 BACKOFF = (2, 4, 8, 16, 32, 60, 120, 300)
 
-# 模型白名单从环境变量注入（逗号分隔），不硬编码任何具体模型：
-#   ALLOWED_MODELS=model-a,model-b   （留空 = 不限制，仅告警）
-ALLOWED_MODELS = {m.strip() for m in os.environ.get("ALLOWED_MODELS", "").split(",") if m.strip()}
+# 用户硬红线：只允许 x0.00 或 ≤0.15 credits。
+ALLOWED_MODELS = {
+    "free-model", "free-model-flash", "small-model", "echo", "small-model", "free-model", "free-model-preview",
+    "gpt-6-luna", "glm-5.3-flash-ioa", "minimax-m3.1-flash",
+    "deepseek-v4.1-flash", "mimo-v2.6-pro", "gpt-5.6-luna",
+}
 
 
 def assert_model(model: str, backend: str = "codebuddy") -> None:
     m = (model or "").strip()
-    if not ALLOWED_MODELS or m in ALLOWED_MODELS:
+    # knot 侧这些 ID 走免费额度，不受 codebuddy credits 红线约束
+    if backend == "knot":
+        if m not in ("free-model", "small-model", "free-model-preview", "glm-5.3", "glm-5.3-flash",
+                     "deepseek-v4-flash", "deepseek-v4-pro"):
+            raise SystemExit(f"knot 模型 {m!r} 不在允许清单")
         return
-    raise SystemExit(f"拒绝：模型 {m!r} 不在白名单内。允许 {sorted(ALLOWED_MODELS)}")
+    if m not in ALLOWED_MODELS:
+        raise SystemExit(f"拒绝：模型 {m!r} 超出 0.15 credits 红线。允许 {sorted(ALLOWED_MODELS)}")
 
 
 def validate_result(d) -> str | None:
@@ -314,7 +322,7 @@ def cmd_plan(args) -> int:
         kinds=", ".join(list_kinds()))
     cmd = [CB_BIN, "-p", "--port", "0", "--output-format", "text",
            "--permission-mode", "bypassPermissions", "-y",
-           "--model", "default", "--session-id",
+           "--model", "free-model", "--session-id",
            f"plan-{int(now())}", "--", prompt]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout)
@@ -368,7 +376,7 @@ def cmd_add_file(args) -> int:
                 priority=int(row.get("priority", 100)),
                 max_attempts=int(row.get("max_attempts", MAX_ATTEMPTS)),
                 backend=row.get("backend", "codebuddy"),
-                model=row.get("model", "default"),
+                model=row.get("model", "free-model"),
                 workdir=row.get("workdir", str(HOME)),
                 goal=row.get("goal"), repo=row.get("repo"), quiet=True)
             if cmd_add(ns) == 0:
@@ -447,9 +455,9 @@ def cmd_brief(args) -> int:
 # ── 调度 ────────────────────────────────────────────────────────────────
 def build_cmd(task: sqlite3.Row, prompt: str) -> list[str]:
     backend = task["backend"] or "codebuddy"
-    model = task["model"] or "default"
+    model = task["model"] or "free-model"
     sid = task["session_id"]
-    if backend == "knot":
+    if model in ("free-model", "small-model", "free-model-preview") and backend == "knot":
         return [KNOT_BIN, "chat", "--no-update", "--output-format", "text",
                 "--model", model, "--sessionId", sid, "-p", prompt]
     cmd = [CB_BIN, "-p", "--port", "0", "--output-format", "text",
@@ -1031,7 +1039,7 @@ def main() -> int:
     a.add_argument("--input-file", help="输入 JSON 文件（可选）")
     a.add_argument("--name")
     a.add_argument("--backend", choices=["codebuddy", "knot"], default="codebuddy")
-    a.add_argument("--model", default="default")
+    a.add_argument("--model", default="free-model")
     a.add_argument("--workdir", default=str(HOME))
     a.add_argument("--priority", type=int, default=100)
     a.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS)
@@ -1045,7 +1053,7 @@ def main() -> int:
     pl.add_argument("--timeout", type=int, default=240)
     pl.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS)
     pl.add_argument("--backend", default="codebuddy")
-    pl.add_argument("--model", default="default")
+    pl.add_argument("--model", default="free-model")
     pl.add_argument("--workdir", default=str(HOME))
     pl.set_defaults(func=cmd_plan)
 

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""限流口径下的速率预算 / 自动恢复（可直接 import）。
+"""Knot 官方限流口径下的速率预算 / 自动恢复（可直接 import）。
 
-本文件不内置任何平台的具体配额数字：所有上限都用环境变量注入，
-默认值仅为占位，请按你所用平台的官方说明覆盖。
+权威来源（用户查证，2026-11-12）：
+  内部文档 （内部文档，公开版略） 《智能体使用限流与模型 token 限额说明》
+  工程实践 （内部文档，公开版略） 《TME AI 后台自动化接入司内免费模型方案》
+官方注明限流策略可能动态调整，本文件数字只是当时的权威口径，用环境变量可覆盖。
 
-**两类 429，别混用**：有的通道 429 会通知「将在 <时刻> 重置」，可解析时刻做
-整模型冷却；有的通道 429 没有任何恢复时间通知，只能靠降并发、切模型、
-短退避 + 探测式自动恢复。对无通知的通道别套用 `quota_exhausted` 路径。
+**适用边界（2026-11-12 用户纠正）**：本文件所有数字都是 **knot-cli / Knot 平台**的。
+codebuddy CLI 是**另一套机制**：它的 429 会在文案里明确通知「将在 <时刻> 重置」，
+可以解析时间做整模型冷却；**knot 的 429 没有任何恢复时间通知**，只能靠降并发、
+切模型、短退避 + 探测式自动恢复。别把 `quota_exhausted` 当成 knot 的恢复路径。
 
 核心洞察（之前 skill 写错过，务必记住）：
 1. 官方限制的是**速率（次/分钟、次/天）**，不是「在途并发数」。
@@ -29,24 +32,24 @@ import threading
 import time
 from collections import defaultdict, deque
 
-# ── 平台上限：全部用环境变量注入，默认占位，按官方说明覆盖 ─────────────
-AGENT_RPM = int(os.environ.get("AGENT_RPM", "20"))                   # 单个智能体 次/分钟
-AGENT_DAILY = int(os.environ.get("AGENT_DAILY", "2000"))             # 单个智能体 次/天
-MODEL_CALL_RPM = int(os.environ.get("MODEL_CALL_RPM", "60"))         # 模型调用(人+模型) 次/分钟
-PERSON_DAILY = int(os.environ.get("PERSON_DAILY", "2000"))           # 个人总量 次/天
-TEAM_DAILY = int(os.environ.get("TEAM_DAILY", "4000"))               # 团队账号 次/天
+# ── 官方数字（平台官方限流文档，可能动态调整）────────────────────────────
+AGENT_RPM = int(os.environ.get("KNOT_AGENT_RPM", "20"))            # 单个智能体 次/分钟
+AGENT_DAILY = int(os.environ.get("KNOT_AGENT_DAILY", "2000"))        # 单个智能体 次/天
+MODEL_CALL_RPM = int(os.environ.get("KNOT_MODEL_CALL_RPM", "60"))    # 模型调用(人+模型) 次/分钟
+PERSON_DAILY = int(os.environ.get("KNOT_PERSON_DAILY", "2000"))      # 个人 LLM 总量 次/天
+TEAM_DAILY = int(os.environ.get("KNOT_TEAM_DAILY", "4000"))          # 团队账号 次/天
 
-# 各模型独立限频：(次/分钟, 次/窗口, 窗口秒)。
-# 默认只有一条通用兜底，不列任何具体模型；需要按模型微调时用
-# PER_MODEL_LIMITS_JSON 环境变量注入，例如 '{"my-model": [30, 1500, 18000]}'。
-_DEFAULT_MODEL_LIMIT = (120, 18000, 24 * 3600)
-PER_MODEL_LIMITS = {}
-import json as _json
-try:
-    PER_MODEL_LIMITS = {k: tuple(v) for k, v in
-                        _json.loads(os.environ.get("PER_MODEL_LIMITS_JSON", "{}")).items()}
-except Exception:
-    PER_MODEL_LIMITS = {}
+# 各模型独立限频：(次/分钟, 次/窗口, 窗口秒)
+PER_MODEL_LIMITS = {
+    "glm-5.3":         (30, 1500, 5 * 3600),
+    "glm-5.3-flash":   (45, 3000, 5 * 3600),
+    "glm-5.2":         (30, 1500, 5 * 3600),
+    "deepseek-v4-flash": (120, 18000, 24 * 3600),
+    "deepseek-v4-pro":   (120, 18000, 24 * 3600),
+    "small-model":               (120, 18000, 24 * 3600),
+    "free-model":               (120, 18000, 24 * 3600),
+    "free-model-preview":       (120, 18000, 24 * 3600),
+}
 
 # 十几个项目共用同一免费池，本项目只取其中一份（默认 25%，保守）。
 PROJECT_SHARE = float(os.environ.get("KNOT_PROJECT_SHARE", "0.25"))
@@ -55,10 +58,13 @@ CALLS_PER_AGENT = float(os.environ.get("KNOT_CALLS_PER_AGENT", "2"))
 # 安全系数：留余量给其它项目和瞬时抖动。
 SAFETY = float(os.environ.get("KNOT_SAFETY", "0.7"))
 
-# 并发是本地量：每模型 1~2 路起步，多模型设一个全局上限。
-GLOBAL_PER_MODEL_CAP = int(os.environ.get("GLOBAL_PER_MODEL_CAP", "3"))
-PER_MODEL_CAP = int(os.environ.get("PER_MODEL_CAP", "2"))
-GLOBAL_CAP = int(os.environ.get("PROJECT_GLOBAL_CAP", "10"))
+# 用户 2026-11-12 口径（修正）：**同模型最多 2 并发**；
+# **多模型合计全局上限 10**（其它项目也在用，别打满）。
+# 旧实现把「每模型 2」误做成「本项目总量 2」，2 个模型各只跑 1 路。
+GLOBAL_PER_MODEL_CAP = int(os.environ.get("KNOT_GLOBAL_PER_MODEL_CAP", "3"))
+PER_MODEL_CAP = int(os.environ.get("KNOT_PER_MODEL_CAP", "2"))
+GLOBAL_CAP = int(os.environ.get("KNOT_PROJECT_GLOBAL_CAP", "10"))
+# 兼容旧引用：PROJECT_HARD_CAP 现在指「本项目总量上限」，不再是 2。
 PROJECT_HARD_CAP = GLOBAL_CAP
 
 
@@ -103,37 +109,41 @@ def classify_error(text: str) -> str:
 RECOVERY = {
     "platform_load":    "短退避 8s/16s 最多 2 次，或切另一个模型；不是个人限流",
     "personal_limit":   "按模型独立 → 切下一个模型并降并发；不要原地退避 45s",
-    "quota_exhausted":  "【仅带重置时刻的通道】解析文案里的时刻，整模型冷却到那一刻并持久化，到期自动回归；无通知的通道不适用",
-    "channel_timeout":  "不重试；错峰或绕过到独立通道，失败留给下轮断点续跑",
+    "quota_exhausted":  "【仅 codebuddy】解析文案里的重置时刻，整模型冷却到那一刻并持久化，到期自动回归；knot 无此通知，不适用",
+    "channel_timeout":  "不重试；错峰或绕过到独立通道（codebuddy），失败留给下轮断点续跑",
     "transient":        "失败不写库，下轮断点续跑自动重判",
 }
 
 
-# ── 成本闸门：模型白名单 ───────────────────────────────────────────────
-# 白名单从环境变量注入（逗号分隔），不硬编码任何具体模型：
-#   CB_ALLOWED_MODELS=model-a,model-b
-# 超白名单在调用前拒绝，不靠 429 回落（回落本身可能落到更贵的模型）。
+# ── codebuddy credits 红线（用户 2026-11-12：用量太大，贵档不用）──────
+# 只允许 x0.00（免费）或 ≤0.15 credits；其余在调用前拒绝，不靠 429 回落
+# （回落本身可能落到贵模型，反而更贵）。
 CB_ALLOWED_MODELS = {
-    m.strip() for m in os.environ.get("CB_ALLOWED_MODELS", "").split(",") if m.strip()
+    # x0.00（hy 系列带/不带 -ioa 两种写法都放行）
+    "free-model", "free-model-flash", "small-model", "echo", "small-model", "free-model", "free-model-preview",
+    # ≤0.15
+    "gpt-6-luna", "glm-5.3-flash-ioa", "minimax-m3.1-flash",
+    "deepseek-v4.1-flash", "mimo-v2.6-pro", "gpt-5.6-luna",
 }
-CB_MAX_CREDITS = float(os.environ.get("CB_MAX_CREDITS", "0.15"))
+CB_MAX_CREDITS = 0.15
 
 
 def assert_cb_model_allowed(model: str, strict: bool = True) -> None:
-    """模型白名单校验。strict=False 时只放行不报错。"""
+    """codebuddy 模型白名单校验。strict=False 时只放行不报错。"""
     m = (model or "").strip()
-    if not CB_ALLOWED_MODELS or m in CB_ALLOWED_MODELS or not strict:
+    if m in CB_ALLOWED_MODELS or not strict:
         return
     raise ValueError(
-        f"模型 {m!r} 不在白名单内，已拒绝。允许：{sorted(CB_ALLOWED_MODELS)}")
+        f"codebuddy 模型 {m!r} 超出 {CB_MAX_CREDITS} credits 红线，已拒绝。"
+        f"允许：{sorted(CB_ALLOWED_MODELS)}")
 
 
 class AdaptiveConcurrency:
-    """无恢复时间通知时的探测式自动恢复。
+    """knot 专用：没有恢复时间通知时的探测式自动恢复。
 
     撞 429 → 立即降并发并短冷却；连续成功 N 条 → 升 1 路；
-    永远不超过本地全局上限 GLOBAL_CAP。
-    状态写文件，跨重启保留；可直接 import 复用。
+    永远不超过本项目全局上限 GLOBAL_CAP(10)。
+    状态写文件，跨重启保留；别的 AI 可直接 import 复用。
     """
     COOL_SECONDS = 60.0          # 第 1 次 429 的静默
     MAX_COOL_SECONDS = 480.0     # 指数退避封顶，避免长期停摆
@@ -259,8 +269,8 @@ class RateBudget:
             q.popleft()
 
     def acquire(self, model: str, avg_latency_s: float = 45.0) -> float:
-        """按速率上限等待到可以发起下一次调用。返回等待秒数。"""
-        limit_rpm, _, _ = PER_MODEL_LIMITS.get(model, _DEFAULT_MODEL_LIMIT)
+        """按官方上限等待到可以发起下一次调用。返回等待秒数。"""
+        limit_rpm, _, _ = PER_MODEL_LIMITS.get(model, (30, 1500, 5 * 3600))
         budget_rpm = min(AGENT_RPM, limit_rpm / max(1.0, CALLS_PER_AGENT)) \
             * PROJECT_SHARE * SAFETY
         interval = 60.0 / max(0.1, budget_rpm)
@@ -339,7 +349,7 @@ if __name__ == "__main__":
     print("=== 失败分类与恢复 ===")
     for s in ('{"code":429,"msg":"too many requests"}',
               "模型资源非常紧张，会有限流情况",
-              "429 您的使用量已超出频率限制，将在 2026-01-01 00:00:00 重置",
+              "429 您的使用量已超出频率限制，将在 2026-11-12 11:17:59 重置",
               "knot-cli chat terminated (hard_timeout)"):
         k = classify_error(s)
         print(f"  {k:<18} → {RECOVERY[k]}")

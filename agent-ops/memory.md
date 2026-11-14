@@ -79,7 +79,7 @@ python3 scripts/agentctl.py brief <name>  # 只读 result.json 的摘要字段�
 2. **输入**：工作目录、上游产出路径（文件，不是对话摘要）。
 3. **步骤与进度**：先读 `progress.md`，从第一个未完成项继续，每步追加。
 4. **输出契约**：`result.json` 的字段和长度上限。
-5. **禁止**：不改工作目录外的文件；不用超 预算阈值 的模型；不调用需要人确认的危险命令。
+5. **禁止**：不改工作目录外的文件；不用超 0.15 credits 的模型；不调用需要人确认的危险命令。
 
 **版本化**：`prompt.md` 落盘在任务目录，`dispatch` 时无法覆盖正在跑的任务（幂等拒绝）。改了提示词要重跑，用新 name，旧任务的 `prompt.md` 就是它的审计记录。
 
@@ -111,7 +111,7 @@ python3 scripts/agentctl.py brief <name>  # 只读 result.json 的摘要字段�
 
 - [ ] `prompt.md` 五段齐全，`result.json` schema 写死
 - [ ] 输出目录明确，`progress.md` 路径写进提示词
-- [ ] 模型在白名单内且不超预算
+- [ ] 模型在红线内（x0.00 或 ≤0.15）
 - [ ] 同名任务没有在跑（`dispatch` 会幂等拒绝）
 
 收任务时：
@@ -127,7 +127,7 @@ python3 scripts/agentctl.py brief <name>  # 只读 result.json 的摘要字段�
 - [ ] 有没有替子 agent 改代码/调试？有就说明上下文要爆了
 - [ ] 任务清单能不能一屏放下？放不下就落 `plan.md` 再开新轮
 
-## 九、记忆实测与假死感知（ 补）
+## 九、记忆实测与假死感知（2026-11-12 补）
 
 ### 断点恢复真实实验（不是文档推演）
 
@@ -160,7 +160,7 @@ progress.md 新增: - 接着做：步骤3
 - 阈值单测：60s 无增长 → 不判死；1000s → 判死；写入新进度 → 立刻复活；`STALE_SECONDS=0` → 关闭。
 - 端到端：造一个 `sleep 300` 的假活进程 + 300s 未更新的 progress，跑 tick → `stale_requeue`、状态 `queued`、错误原因写进 `error`、假进程被精确杀掉。
 
-## 十、纠正：监督必须是「模型监督模型」，脚本不做判断（）
+## 十、纠正：监督必须是「模型监督模型」，脚本不做判断（2026-11-12）
 
 用户指出我一度把原 `watchdog（旧版）` 的核心降级了。原设计是：
 
@@ -176,7 +176,7 @@ cron 定时 → --resume <sid> + 一条固定提示词
 | 角色 | 做什么 | 不做什么 |
 |---|---|---|
 | 脚本 `taskctl` | 收集状态、发现「疑似无增长」只**标记** `need_supervision`、给进程续租 | 不判断死活、**不杀进程** |
-| 监督者模型 `scripts/supervisor.py` | **每任务独立调用**（ 拆分）：单任务快照 + 一行全局摘要 → 单 JSON 决策；并发 2 路（SUPERVISOR_CONCURRENCY），某任务失败只影响它自己 | 不执行、不改文件 |
+| 监督者模型 `scripts/supervisor.py` | **每任务独立调用**（2026-11-13 拆分）：单任务快照 + 一行全局摘要 → 单 JSON 决策；并发 2 路（SUPERVISOR_CONCURRENCY），某任务失败只影响它自己 | 不执行、不改文件 |
 | 脚本 `apply()` | 归一化模型输出、防呆、执行 `continue/nudge/restart/escalate/finish`、把指令写进 `guidance.md` | 不替模型做判断 |
 | 人 | 只读 `stats` / `brief`；只有 `escalate` 才需要介入 | 不需要逐个盯 |
 
@@ -184,7 +184,7 @@ cron 定时 → --resume <sid> + 一条固定提示词
 
 决策五种：`continue`（正常）、`nudge`（写指令、不动进程）、`restart`（杀掉重排 + 指令注入）、`escalate`（标 awaiting-person）、`finish`（按产出收尾）。防呆：`restart` 必须有 guidance 且未超重试；模型输出无法解析/超时 → **本轮不动**，绝不误杀正在 reasoning 的长任务。
 
-### 实测（当时用 等其它模型 验证，非 mock；现监督者默认已改 $WORKER_MODEL，结论对 $WORKER_MODEL 同样适用）
+### 实测（当时用 small-model 验证，非 mock；现监督者默认已改 free-model，结论对 free-model 同样适用）
 
 ```
 快照: 1 个任务，progress 尾显示「步骤2 同一条报错重复 3 次」，301s 无增长、进程存活
@@ -209,7 +209,7 @@ python3 $S once                # 跑一次（cron 用）
 python3 $S daemon --interval 300   # 常驻，每 5 分钟一轮
 ```
 
-## 十一、几十天的任务：全局更新，不截断（）
+## 十一、几十天的任务：全局更新，不截断（2026-11-13）
 
 实测量化：30 天 × 20 步/天 × 120 字/步 → `progress.md` 约 **109KB ≈ 36K tokens**，随天数线性增长。
 
@@ -223,7 +223,7 @@ python3 $S daemon --interval 300   # 常驻，每 5 分钟一轮
 代价：单轮 token 成本随历史增长（这是真实开销，不假装没有）；收益：不丢任何决策依据。
 若真跑几十天导致模型窗口装不下，那是**该拆任务**的信号，不是截断记忆的理由。
 
-### 已实现并实测：compaction 留痕 + 阈值参数化 + 30 天仿真（）
+### 已实现并实测：compaction 留痕 + 阈值参数化 + 30 天仿真（2026-11-13）
 
 三项"未实现"已全部落地：
 
@@ -239,7 +239,7 @@ python3 $S daemon --interval 300   # 常驻，每 5 分钟一轮
 - 模板要求模型重写前自行归档原文到 `progress-archive/prev.md`（双保险）
 - "哪条旧记录压成哪句结论" = 对比 `prev.md`/`snap-*` 与新版，逐字可回溯
 
-**③ 30 天仿真实测**（真实 $WORKER_MODEL，非 mock）：
+**③ 30 天仿真实测**（真实 free-model，非 mock）：
 
 | 指标 | 重写前 | 重写后 |
 |---|---|---|
@@ -253,7 +253,7 @@ python3 $S daemon --interval 300   # 常驻，每 5 分钟一轮
 
 链路验证：`taskctl tick` 收尾自动写 compaction 事件（`before_lines=600, after_lines=49, drop_pct=91.8`），归档四件套齐全（compact-1 / prev.md / snap-1 / snap-2）。
 
-### 同类开源 harness 怎么做的（ clone 实测）
+### 同类开源 harness 怎么做的（2026-11-13 clone 实测）
 
 已 clone 到 `<skill 安装目录>/references-upstream/`：`deer-flow`(ByteDance)、`OpenHarness`(HKUDS)、`prime-agent`(PrimeIntellect)、`LongHorizon-Harness`(AMAP-ML)、`munder-difflin`。`deepseek-ai/harness` 需私有认证，clone 失败（只有搜索结果里的二手描述，不算证据）。
 
@@ -267,7 +267,7 @@ python3 $S daemon --interval 300   # 常驻，每 5 分钟一轮
 
 **残留边界**：30 天仿真是**一次性重写**实测；"每轮都重写、连跑 30 天"的持续行为未实测。重写依赖模型执行，若模型偷懒只追加不重写，supervisor 的 `needs_compaction` 会提醒但仍需模型配合。
 
-### 监督者拆分：混批 → 每任务独立调用（，用户判断驱动）
+### 监督者拆分：混批 → 每任务独立调用（2026-11-13，用户判断驱动）
 
 用户指出「不同任务混一起乱七八糟」——三个具体理由全部成立：
 1. **上下文污染**：A 任务的报错特征干扰 B 的判断；
@@ -282,7 +282,7 @@ python3 $S daemon --interval 300   # 常驻，每 5 分钟一轮
 （如 3 个任务同时 idle 可能是限流），但决策只针对目标任务。
 `PROMPT` 多任务数组版保留（supervise_agents 后端复用），taskctl 后端走 `PROMPT_SINGLE`。
 
-## 十二、监督者 → 管理者：任务主人的化身（）
+## 十二、监督者 → 管理者：任务主人的化身（2026-11-13）
 
 用户定义的角色升级：管理者不是"盯卡的脚本"，是**主人在任务现场的代理人**——
 主人发起任务时并不确定多复杂、要多久；管理者让这件事被持续做好，

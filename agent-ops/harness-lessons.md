@@ -12,7 +12,7 @@
 |---|---|---|
 | google/ax：PostgreSQL 存资源 + 分布式锁（lease）+ **轮询**（不依赖 LISTEN/NOTIFY） | SQLite tasks 表 + lease_until + 30s tick 轮询 | **同构**。ax 把同一模式扩到集群级；单机 SQLite 是它的退化形式，方向被验证 |
 | ax：Task immutable once created | prompt.md 落盘版本化 + dispatch 幂等拒绝 | 一致 |
-| substrate：actor→少量 worker 映射、快照恢复 500ms | 任务=DB 行 + worker 池（按模型分桶 + 全局上限） | 一致；我们不做内存快照（CLI agent 状态在会话文件里，天然持久化） |
+| substrate：actor→少量 worker 映射、快照恢复 500ms | 任务=DB 行 + worker 池（每模型 2/全局 10） | 一致；我们不做内存快照（CLI agent 状态在会话文件里，天然持久化） |
 | ax：SuspendTask/ResumeTask 检查点 | **原缺** → 已补 `taskctl suspend/resume`（2026-11-13） | 采纳落地 |
 | trueforge：上下文工程（compaction、deferred tool loading） | memory.md 全局重写 + compaction 留痕 | 一致；deferred tool loading 不适用（CLI agent 自带工具管理） |
 | PrimusClaw：NATS JetStream 队列 / API-Brain-Hands 三服务 | SQLite 队列 / supervisor / CLI agent | 结构同构，消息队列对单机是过度设计 |

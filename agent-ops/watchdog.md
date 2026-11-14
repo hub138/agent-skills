@@ -1,6 +1,6 @@
 # watchdog：长任务断了自动接上（完整手册）
 
-> 原 `watchdog（旧版）` skill 已并入本 skill（）。脚本、模板、配置格式、排查方法全部保留；新任务也可以直接用 `scripts/agentctl.py`（见 `orchestrator.md`）。
+> 原 `watchdog（旧版）` skill 已并入本 skill（2026-11-12）。脚本、模板、配置格式、排查方法全部保留；新任务也可以直接用 `scripts/agentctl.py`（见 `orchestrator.md`）。
 > 数据目录 `~/.codebuddy/watchdog/` 是**私人数据**（含真实路径与任务内容），不要读给别人，也不要建议公开。
 
 ## 一、原理
@@ -63,7 +63,7 @@ bash <skill 安装目录>/agent-ops/scripts/watchdog.sh status         # 应能�
 | `session_id` | 必填 | 要续接的会话 ID（自定义名或 UUID） |
 | `prompts` | 空 | 该会话要执行的多条指令，见第五节 |
 | `workdir` | `~` | 在哪个目录跑，决定加载哪个项目的配置 |
-| `model` | `$WORKER_MODEL` | 模型 ID；默认取 `WORKER_MODEL`，按通道与任务挑；每模型 1~2 路、多模型设全局上限，**只用白名单内不超预算的模型** |
+| `model` | `free-model` | 模型 ID；默认 `free-model`（= knot 侧 `free-model`），small-model 偏弱默认不用、要用显式配；每模型 2 路、全局上限 10，**不要用贵档** |
 | `extra_args` | `["-y"]` | **无人值守必须保留 `-y`**，否则权限弹窗卡死 |
 | `sandbox` | `true` | 拉起时带 `CODEBUDDY_IS_SANDBOX=1`，放宽权限防弹窗 |
 | `check_interval_minutes` | 5 | 多久检查一次；挂掉后平均 2.5 分钟被发现 |
@@ -106,7 +106,7 @@ bash <skill 安装目录>/agent-ops/scripts/watchdog.sh status         # 应能�
 4. 产出规范：写到哪个文件、什么格式
 5. 收工条件：全部完成就创建 {DONE_FILE} 并停手
 
-禁止：修改 {WORKDIR} 之外的文件；调用超过 预算阈值 的模型。
+禁止：修改 {WORKDIR} 之外的文件；调用超过 0.15 credits 的模型。
 ```
 
 ## 七、时间参数怎么定

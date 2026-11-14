@@ -220,13 +220,10 @@ check_job() {
     wlog "$job: 免费模型闸门未通过，拒绝拉起（见 assert_free_models.py 输出）"
     return 1
   fi
-  # 白名单闸门：JOB_ALLOWED_MODELS 非空时校验；留空则不拦截。
-  if [ -n "$JOB_ALLOWED_MODELS" ]; then
-    case ",$JOB_ALLOWED_MODELS," in
-      *",$JOB_MODEL,"*) ;;
-      *) wlog "$job: 模型 $JOB_MODEL 不在白名单内，拒绝拉起"; return 1 ;;
-    esac
-  fi
+  case "$JOB_MODEL" in
+    free-model|small-model|free-model-preview) ;;
+    *) wlog "$job: 模型 $JOB_MODEL 非免费 hy 系列，拒绝拉起"; return 1 ;;
+  esac
 
   local model_args=()
   [ -n "$JOB_MODEL" ] && model_args=(--model "$JOB_MODEL")

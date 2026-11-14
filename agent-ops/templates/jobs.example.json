@@ -19,8 +19,8 @@
     "sandbox": true,
     "_sandbox_说明": "为 true 时拉起会带 CODEBUDDY_IS_SANDBOX=1，沙箱内放行权限，无人值守不会被弹窗卡住。注意它同时也放宽了操作限制，只在你信任的任务上开启。",
     "workdir": "~/my-project",
-    "model": "",
-    "_model_说明": "留空则用环境变量 WORKER_MODEL。填模型 ID 时注意不同通道的命名可能不同。",
+    "model": "free-model-preview-ioa",
+    "_model_说明": "留空则用 free-model-preview-ioa（免费档）。想换就填别的模型 ID；不带 -ioa 后缀的走 knot 通道，这里是 codebuddy 通道。",
   },
   "watchers": [
     {

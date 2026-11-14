@@ -20,7 +20,7 @@ ACT=<skill 安装目录>/agent-ops/scripts/agentctl.py
 
 # 1) 派发：自己指定 session id，之后就能精确定位
 python3 $ACT dispatch --name port-4364 \
-  --backend codebuddy --model $WORKER_MODEL \
+  --backend codebuddy --model free-model \
   --workdir <你的项目目录> \
   --prompt-file /tmp/prompt-port-4364.md
 
@@ -65,7 +65,7 @@ pid / exit  当前 pid 与上次退出码（exit 空 = 还没退出）
 out/        子任务自己的产出目录，提示词里要求它写这里
 ```
 
-## 三·五、实时读输出 & 给任务追加输入（ 实测）
+## 三·五、实时读输出 & 给任务追加输入（2026-11-12 实测）
 
 | 想做的事 | 可行 | 怎么做 |
 |---|---|---|
@@ -142,7 +142,7 @@ out/        子任务自己的产出目录，提示词里要求它写这里
 - 每次操作只碰索引命中的少量行，不做全表扫描、不 glob 目录。
 - **租约（lease）代替 pid**：worker 崩溃/机器重启后，租约过期自动回收重排。
 
-10 万行实测（）：
+10 万行实测（2026-11-12）：
 
 | 操作 | 耗时 |
 |---|---|
@@ -199,7 +199,7 @@ python3 $T daemon --concurrency 2 --interval 30 &
 
 **未验证**：见下节「三·九」的完整审计与未验证清单。
 
-## 三·九、第二轮审判式审计（，别当成「已经好了」）
+## 三·九、第二轮审判式审计（2026-11-12，别当成「已经好了」）
 
 第一版 `taskctl` 只做了单链路冒烟就宣称可用，用并发测试和长任务模拟一压，暴露了**会让几十万任务全盘失效**的问题。以下都是实测复现后修的，不是推测。
 
@@ -212,7 +212,7 @@ python3 $T daemon --concurrency 2 --interval 30 &
 | **session 首次 `--resume`** | 首次运行 session 为空 → `No conversation found` 启动即退 | 首次 `--session-id`，重试才 `--resume`；会话丢失自动换新 session 重排 |
 | **10 万目录爆炸** | 旧 `add` 每条都建目录+写 prompt.md → 10 万任务 = 30 万 inode | **惰性创建**：`add` 只插一行，目录和提示词只在 `tick` 真正拉起时生成。实测加 2000 条、目录数 = **0** |
 | **outbox 空表** | 建了表但从未写入，是「看起来有」 | 抢占时写 `spawn` 事件、commit 后执行，成功标 done、失败标 failed |
-| **无模型红线** | `add --model 高价模型` 能通过 | `assert_model()`：只允许 白名单内且不超预算，add 与 tick 双重校验 |
+| **无模型红线** | `add --model claude-opus-5` 能通过 | `assert_model()`：只允许 x0.00 / ≤0.15 credits，add 与 tick 双重校验 |
 | **result 无校验** | 子任务写 `{"status":"ok"}` 也会被当成功 | `validate_result()` 校验 status 枚举 / summary 长度 / evidence 类型；不合格重排并把原因写进下次 prompt |
 | **cancel 不杀进程** | 只改状态，进程继续跑继续写 | 读 `worker_id` 里的 pid，`killpg(SIGTERM)` |
 | **还要填 JSON** | `add --input '{"topic":"..."}'` 对不懂 AI 的人仍是门槛 | `add --goal "一句话"` + `plan --goal "一句话"` 自动拆任务 |
@@ -258,12 +258,12 @@ python3 $T brief <ID>
 **并行（独立任务，多模型分摊）**
 
 ```bash
-python3 $ACT dispatch --name scan-a --backend codebuddy --model $WORKER_MODEL --prompt-file a.md --workdir /path/a
-python3 $ACT dispatch --name scan-b --backend codebuddy --model $WORKER_MODEL --prompt-file b.md --workdir /path/b
-# 要显式用 等其它模型（偏弱、非默认）才把上面某个 --model 改成 等其它模型
+python3 $ACT dispatch --name scan-a --backend codebuddy --model free-model --prompt-file a.md --workdir /path/a
+python3 $ACT dispatch --name scan-b --backend codebuddy --model free-model --prompt-file b.md --workdir /path/b
+# 要显式用 small-model（偏弱、非默认）才把上面某个 --model 改成 small-model
 ```
 
-同一模型不要超过 2 个进程：总并发 = min(全局上限, 模型数×每模型上限)；默认只用 $WORKER_MODEL。
+同一模型不要超过 2 个进程（用户 2026-11-12 口径修正）：总并发 = min(10, 模型数×2)；默认只用 free-model。
 
 **串行（有依赖，前一步产出是后一步输入）**
 
@@ -295,15 +295,15 @@ python3 $ACT dispatch --name scan-b --backend codebuddy --model $WORKER_MODEL --
 
 ## 禁止
 - 不要修改 {workdir} 之外的文件
-- 不要调用超过 预算阈值 的模型
+- 不要调用超过 0.15 credits 的模型
 ```
 
 **为什么强制写 `progress.md`**：会话上下文撑满会压缩，只有落盘进度不会丢；`resume` 续接时靠它恢复。
 
 ## 六、限额与红线
 
-- **模型**：默认 `$WORKER_MODEL`；等其它模型 偏弱、非默认，要用显式配。红线仍是只允许 白名单内且不超预算（`便宜档模型` / `便宜档模型` 等便宜档可用）。`agentctl dispatch` 在起进程前校验，传贵模型直接拒绝。
-- **并发**：每模型 1~2 路、多模型设全局上限（当前 2 个模型 → 4 路）。不要因为「反正是免费」就打满。
+- **模型**：默认 `free-model`；small-model 偏弱、非默认，要用显式配。红线仍是只允许 x0.00 或 ≤0.15 credits（`glm-5.3-flash-ioa` / `deepseek-v4.1-flash` 等便宜档可用）。`agentctl dispatch` 在起进程前校验，传贵模型直接拒绝。
+- **并发**：每模型最多 2 路、全局上限 10（当前 2 个模型 → 4 路）。不要因为「反正是免费」就打满。
 - **knot 限流**：429 没有恢复时间通知，撞了就降并发/切模型/短冷却；不要原地 45s×3 退避。
 - **不做全局配额推演**：别的项目占用算不清，`agentctl` 只统计自己派发的任务。
 

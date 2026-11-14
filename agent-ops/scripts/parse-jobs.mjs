@@ -51,8 +51,8 @@ for (const w of cfg.watchers || []) {
     name,
     session_id: w.session_id,
     workdir: pick(w.workdir, def.workdir, process.env.HOME || '/root'),
-    // 默认模型：可用 DEFAULT_MODEL 或 jobs.json 的 model 字段覆盖
-    model: String(pick(w.model, def.model, process.env.WORKER_MODEL || 'default')),
+    // 默认模型：免费档 free-model。想换就改这里的 DEFAULT_MODEL 或在 jobs.json 里配 model 字段
+    model: String(pick(w.model, def.model, 'free-model-preview-ioa')),
     extra_args: extra.join(' '),
     check_interval_minutes: num(w.check_interval_minutes, num(def.check_interval_minutes, 5)),
     stale_minutes: num(w.stale_minutes, num(def.stale_minutes, 0)),

@@ -44,16 +44,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import taskctl as T  # noqa: E402  复用 SQLite 与任务目录约定
 
 CB_BIN = os.environ.get("CODEBUDDY_CLI_BIN", "/usr/local/bin/codebuddy")
-# 监督者模型可配置：SUPERVISOR_MODEL；默认与 worker 一致。
-SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL",
-                                  os.environ.get("WORKER_MODEL", "default"))
+# 用户 2026-11-12 最终口径：监督者默认 free-model（codebuddy 侧写 free-model），不再用偏弱的 small-model。
+# 要换模型设 SUPERVISOR_MODEL 即可（如 SUPERVISOR_MODEL=small-model）。
+SUPERVISOR_MODEL = os.environ.get("SUPERVISOR_MODEL", "free-model")
 # 管理者读 progress 全文，上下文比旧监督者大，180s 实测不够（2026-11-13）
 # 实测：管理者读全文+refine 人设下单次调用可达 ~420s（2026-11-13 通道慢时段）
 SUPERVISOR_TIMEOUT = int(os.environ.get("SUPERVISOR_TIMEOUT", "420"))
 INTERVAL = int(os.environ.get("SUPERVISOR_INTERVAL", "300"))
 # 低于这个 idle 不打扰监督者，避免频繁调用烧额度
 MIN_IDLE_TO_ASK = int(os.environ.get("SUPERVISOR_MIN_IDLE", "120"))
-# 监督调用并发：与 worker 同语义（每模型 1~2 路），排队不超发
+# 监督调用并发：与 worker 同语义（每模型 2 路），排队不超发
 SUPERVISOR_CONCURRENCY = int(os.environ.get("SUPERVISOR_CONCURRENCY", "2"))
 # 即使没有异常，也每这么久问一次（定时监督，对齐原 watchdog）
 FORCE_ASK_EVERY = int(os.environ.get("SUPERVISOR_FORCE_EVERY", "1800"))
@@ -423,7 +423,7 @@ def apply(conn, decisions: list[dict]) -> list[str]:
 def run_once(verbose: bool = True) -> int:
     """每任务**独立**监督调用：不混批（混批会互相干扰、一次解析失败全军覆没）。
 
-    并发 = SUPERVISOR_CONCURRENCY（默认 2，遵守每模型 1~2 路的额度语义）；
+    并发 = SUPERVISOR_CONCURRENCY（默认 2，遵守每模型 2 路的额度语义）；
     某任务调用失败/超时只影响它自己，其余照常拿到决策。
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed

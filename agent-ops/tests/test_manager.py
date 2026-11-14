@@ -35,7 +35,7 @@ def env(tmp_path, monkeypatch):
 def _add_running(t, tmp_path, name="m1"):
     ns = argparse.Namespace(kind="generic", input='{"topic":"初始目标"}', input_file=None,
                             goal="初始目标：对比两版实现差异", repo=None, name=name,
-                            backend="codebuddy", model="test-model", workdir="/tmp",
+                            backend="codebuddy", model="free-model", workdir="/tmp",
                             priority=100, max_attempts=3, quiet=True)
     t.cmd_add(ns)
     base = tmp_path / "home" / "tasks" / name

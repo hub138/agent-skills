@@ -16,7 +16,7 @@
 - codebuddy 必须带 `--port 0`，否则复用旧端口会 EADDRINUSE 起不来。
 - 长 prompt 必须以 `--` 分隔，否则以 `-` 开头的行被当成选项（exit 1 秒退）。
 - 无人值守必须 `-y`，否则权限弹窗卡死。
-- 只用白名单内的模型（ALLOWED_MODELS 配置），用量大时先收窄到免费/低价档。
+- 只允许 x0.00 / ≤0.15 credits 的模型（用户红线，用量太大）。
 - knot 的 429 没有恢复时间通知，撞了降并发/切模型，不要原地长退避。
 """
 from __future__ import annotations
@@ -39,12 +39,15 @@ REGISTRY = HOME / "registry.json"
 LOCK = HOME / "registry.lock"
 
 CB_BIN = os.environ.get("CODEBUDDY_CLI_BIN", "/usr/local/bin/codebuddy")
-KNOT_BIN = os.environ.get("KNOT_CLI_BIN", "knot-cli")
+KNOT_BIN = os.environ.get("KNOT_CLI_BIN", "<knot-cli 路径>")
 CB_PROJECTS = Path.home() / ".codebuddy/projects"
 
-# 模型白名单从环境变量注入（逗号分隔），不硬编码任何具体模型：
-#   ALLOWED_MODELS=model-a,model-b   （留空 = 不限制，仅告警）
-ALLOWED_MODELS = {m.strip() for m in os.environ.get("ALLOWED_MODELS", "").split(",") if m.strip()}
+# 用户 2026-11-12 红线：只允许 x0.00 或 ≤0.15 credits。
+ALLOWED_MODELS = {
+    "free-model", "free-model-flash", "small-model", "echo", "small-model", "free-model", "free-model-preview",
+    "gpt-6-luna", "glm-5.3-flash-ioa", "minimax-m3.1-flash",
+    "deepseek-v4.1-flash", "mimo-v2.6-pro", "gpt-5.6-luna",
+}
 DEFAULT_MAX_RESTARTS = int(os.environ.get("AGENTCTL_MAX_RESTARTS", "5"))
 COOLDOWN = int(os.environ.get("AGENTCTL_COOLDOWN", "60"))
 
@@ -655,7 +658,7 @@ def main() -> int:
     d = sub.add_parser("dispatch", help="派发一个后台子任务")
     d.add_argument("--name", required=True)
     d.add_argument("--backend", choices=["codebuddy", "knot"], default="codebuddy")
-    d.add_argument("--model", default=os.environ.get("WORKER_MODEL", "default"))
+    d.add_argument("--model", default="free-model")
     d.add_argument("--prompt-file")
     d.add_argument("--prompt")
     d.add_argument("--workdir", default=str(Path.home()))
