@@ -1,0 +1,46 @@
+{
+  "_读我": "复制这个文件为 jobs.json 再改（jobs.json 是你自己的私人配置，不要提交到公开仓库）。",
+  "cron_interval_minutes": 1,
+  "defaults": {
+    "check_interval_minutes": 5,
+    "_check_interval_说明": "每个任务多久被真正检查一次。检查只是看一眼进程在不在，不消耗任何额度，默认 5 分钟：任务挂掉后平均 2.5 分钟被发现。想更快发现填 1 或 2。",
+    "stale_minutes": 0,
+    "_stale_说明": "进程还在、但日志很久没动，判定为假死，先杀再拉起。默认 0（关闭）是安全选择：-p 模式的输出要等进程结束才写进日志，日志长时间不动是正常现象，开了判定会把正在干活的 Agent 杀掉。只有你确认自己的运行方式会实时刷日志时才建议开（填 30 到 60）。",
+    "max_restarts": 20,
+    "_max_restarts_说明": "连续失败重启的上限，防止代码本身有问题时整夜烧额度。成功推进到下一条提示词时计数归零。填 0 表示不限。",
+    "restart_cooldown_seconds": 60,
+    "_restart_cooldown_说明": "两次拉起之间的最小间隔，挡住「一拉起就秒退」的重启风暴。",
+    "prompt_mode": "step",
+    "_prompt_mode_说明": "step=按顺序走，上一条正常退出才进下一条；cycle=每次拉起轮换下一条，走完回到第一条；first=永远只用第一条（长时间单任务推荐这个）。",
+    "extra_args": [
+      "-y"
+    ],
+    "_extra_args_说明": "无人值守必须保留 -y，否则权限弹窗会把进程永远卡住。",
+    "sandbox": true,
+    "_sandbox_说明": "为 true 时拉起会带 CODEBUDDY_IS_SANDBOX=1，沙箱内放行权限，无人值守不会被弹窗卡住。注意它同时也放宽了操作限制，只在你信任的任务上开启。",
+    "workdir": "~/my-project",
+    "model": "",
+    "_model_说明": "留空则用环境变量 WORKER_MODEL。填模型 ID 时注意不同通道的命名可能不同。",
+  },
+  "watchers": [
+    {
+      "name": "示例任务",
+      "enabled": false,
+      "_enabled_说明": "false 表示先停用，改成 true 才会被看门狗接管",
+      "session_id": "my-task-session",
+      "_session_id_说明": "先手动跑一次把它固定下来：codebuddy -p --port 0 --session-id my-task-session \"任务描述\"。也可以填一个已经存在的会话 ID（含 UUID），那就是纯续接，不会新建。",
+      "workdir": "~/my-project",
+      "model": "",
+      "prompts": [
+        {
+          "name": "第一阶段",
+          "text": "读进度记录，从第一个未完成的步骤继续。每完成一步写回进度记录。"
+        },
+        {
+          "name": "收尾",
+          "text": "所有步骤做完后，创建完成标记 {DONE_FILE} 并停手。"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "_comment": "死士检查配置示例（占位符需替换；真实配置含密码，放项目侧不进 skill）",
+  "log_file": "<项目目录>/logs/deadman_check.log",
+  "notify_log": "<项目目录>/logs/notify_send.log",
+  "notify_cmd": "python3 <项目目录>/scripts/deadman_notify.py   # 内容从 stdin 读，不用占位符",
+  "databases": {
+    "main": {
+      "kind": "mysql",
+      "host": "<host>",
+      "port": 3306,
+      "user": "<user>",
+      "password": "<password>",
+      "database": "<db>"
+    },
+    "queue": {
+      "kind": "sqlite",
+      "path": "~/.codebuddy/agentctl/tasks.db"
+    }
+  },
+  "checks": [
+    {
+      "type": "process_alive",
+      "name": "静态扫描-进程",
+      "pattern": "static_scan_runner.py"
+    },
+    {
+      "type": "db_freshness",
+      "name": "静态扫描-判定心跳",
+      "db": "main",
+      "freshness_sql": "SELECT MAX(updated_at) FROM community_commits WHERE tdsql_need_merge IS NOT NULL",
+      "max_age_hours": 6,
+      "gate_sql": "SELECT COUNT(*) FROM community_commits WHERE tdsql_need_merge IS NULL AND CHAR_LENGTH(IFNULL(main_diff,''))>0",
+      "gate_min": 1
+    },
+    {
+      "type": "db_output",
+      "name": "动态复现-产出",
+      "db": "main",
+      "count_sql": "SELECT COUNT(*) FROM mtr_test_result WHERE created_at >= ?",
+      "last_sql": "SELECT MAX(created_at) FROM mtr_test_result",
+      "window_hours": 12,
+      "require_process": "dynamic_repro_runner.py"
+    },
+    {
+      "type": "queue_stall",
+      "name": "队列水位",
+      "db": "main",
+      "pending_sql": "SELECT COUNT(*) FROM community_commits WHERE tdsql_need_merge IS NULL AND CHAR_LENGTH(IFNULL(main_diff,''))>0",
+      "judged_sql": "SELECT COUNT(*) FROM community_commits WHERE tdsql_need_merge IS NOT NULL AND updated_at >= ?",
+      "window_hours": 12
+    },
+    {
+      "type": "log_freshness",
+      "name": "日志心跳-静态",
+      "db": "main",
+      "glob": "<项目目录>/logs/static_scan_*.log",
+      "max_age_hours": 2,
+      "require_process": "static_scan_runner.py"
+    },
+    {
+      "type": "log_freshness",
+      "name": "日志心跳-动态",
+      "glob": "<项目目录>/logs/dynamic_repro_*.log",
+      "max_age_hours": 2,
+      "require_process": "dynamic_repro_runner.py"
+    },
+    {
+      "type": "notify_silence",
+      "name": "通知链路",
+      "db": "main",
+      "notify_log": "<项目目录>/logs/notify_send.log",
+      "scan_globs": [
+        "<项目目录>/logs/*.log"
+      ],
+      "max_age_hours": 48
+    },
+    {
+      "type": "queue_stall",
+      "name": "taskctl 队列（skill 自身）",
+      "db": "queue",
+      "pending_sql": "SELECT COUNT(*) FROM tasks WHERE status='queued'",
+      "judged_sql": "SELECT COUNT(*) FROM tasks WHERE status IN ('done','failed') AND ended_at >= ?",
+      "window_hours": 24
+    }
+  ]
+}

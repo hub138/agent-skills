@@ -1,0 +1,12 @@
+{
+  "_note": "示例模板：theme/codes 必须改成用户实际观察的板块载体。真实映射放用户数据区 $SG_HOME/trend-themes.json（加载优先级更高），此文件只是格式样例。",
+  "themes": [
+    {
+      "id": "sample",
+      "name": "示例主题",
+      "benchmark": "sz900001",
+      "codes": ["sh900001", "sh900002", "sh900003"],
+      "keywords": ["示例关键词"]
+    }
+  ]
+}
