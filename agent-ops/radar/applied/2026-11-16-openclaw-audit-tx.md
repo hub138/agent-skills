@@ -43,7 +43,7 @@ OpenClaw 的 `docs/design.md:125` 写的是
 ## 门禁
 
 ```
-pytest tests/ -q                58 passed（雷达 12 项，含事务回滚）
+pytest 全绿（项数以 doccheck 为准）
 doccheck.py                     OK
 radar_cli.py status --json      JSON 可解析
 pyflakes | grep "undefined name '"   0

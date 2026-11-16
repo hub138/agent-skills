@@ -61,7 +61,9 @@ def check() -> list[str]:
 
     # 3b) 新模块必须出现在导航表里，否则 AI 读 SKILL.md 会不知道它存在
     for needed in ("platform_util.py", "model_policy.py", "doccheck.py",
-                   "_done-contract.md"):
+                   "_done-contract.md", "anatomy_check.py",
+                   "radar_cli.py", "radar_store.py", "radar_workspace.py",
+                   "GOVERNANCE.md", "ANATOMY.md", "CHANGELOG.md", "triage"):
         if needed not in skill:
             issues.append(f"SKILL.md 导航表漏了 {needed}")
 

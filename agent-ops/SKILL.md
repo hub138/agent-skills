@@ -8,8 +8,8 @@ description: 本机 AI agent 编排与模型运维。当一个 agent 要调度�
 > **公开脱敏版**：`https://github.com/hub138/agent-skills`（`agent-ops/` 目录）。
 > 两份同源：公开版去掉了内部文档链接、内网域名、内部模型代号与具体配额数字；
 > 能力、脚本、触发词完全一致。**每次修改本 skill 后必须同步公开版并提交推送**，
-> 步骤见 `orchestrator.md` 末节「同步公开版」。`agent_foundation` 的文档权威源也在该仓库
-> 的 `agent_foundation/` 目录；依赖旧路径的 automation 已迁移，见 `orchestrator.md`「自动化链路的目录迁移」。
+> 同步步骤见 `GOVERNANCE.md` 第 3 节第 8 步与 `ANATOMY.md` 第 7 节；
+> 发布脚本是 `scripts/desensitize.py`（公开版不发布该脚本与这段流程说明）。
 
 > 本机实测 2026-11-10。正文全文内联（本机 AGENTS.md 硬规则：禁止用 `@` 引用文件，引用行不展开正文）。
 > 权威源：`<skill 安装目录>/agent-ops/`，已同步安装到 ~/.codebuddy/skills、~/.claude/skills、~/.codex/skills、~/.cursor/skills。
@@ -77,6 +77,10 @@ description: 本机 AI agent 编排与模型运维。当一个 agent 要调度�
 | `tests/` | 回归测试（taskctl / manager / deadman / platform_util / model_policy / doccheck），`python3 -m pytest tests/ -q`；项数以 `doccheck.py` 对账为准 |
 | `FIELD-NOTES.md` | **实战补丁记录**：用本 skill 真实跑任务踩到的坑与修法（监督器三后端、cron python 版本、企微拆条、完成 vs 卡住的区分……每条附现象/根因/验证），新坑先查这里 |
 | `dsh-lessons.md` | DeepSeek Super-agent 学习笔记：领域模型、Ticket 状态机、stored work/幂等/保序/已读未读，以及我们采纳与不采纳的判断 |
+| `GOVERNANCE.md` / `ANATOMY.md` / `CHANGELOG.md` | 开发规范、结构解剖、变更历史：改代码前先读 |
+| `scripts/anatomy_check.py` | ANATOMY 与代码树结构对账（已并入 `doccheck.py`） |
+| `scripts/radar_cli.py` / `radar_store.py` / `radar_workspace.py` | 雷达：`intake` / `triage` / `next` / `workspace` / `record` / `applied` / `ledger` / `events` / `clean` |
+| `radar/README.md` | 雷达使用手册；先 `triage` 分诊，只深读 `deep` 条目 |
 
 ## 一、具体 ID（最上面，直接用）
 
@@ -364,6 +368,7 @@ python3 scripts/doccheck.py            # 文档数字 / 导航表 / 单一权威
 python3 scripts/anatomy_check.py       # ANATOMY 与代码树结构对账（活文档闸门）
 python3 scripts/agentctl.py status     # 真业务路径，必须打印任务表而不是 traceback
 python3 scripts/agentctl.py status --json | python3 -m json.tool >/dev/null
+python3 -m pyflakes scripts/*.py | grep -c "undefined name '"   # 必须为 0
 ```
 
 若用正则改过函数体，还要对比改动前后的顶层函数集合：
@@ -377,10 +382,12 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 
 - 入口：`python3 scripts/radar_cli.py --help`。完整说明 `radar/README.md`，
   结构解剖 `ANATOMY.md` 第 8 节，开发规范 `GOVERNANCE.md`。
-- 一期流程：`intake`（**同一天多期用 `--slot 11:00` 区分**）→ `next` →
-  `workspace`（clone 到独立缓存）→ 按 `radar/prompts/analyze-repo.md` /
-  `analyze-article.md` 深读 → `record`（结论 + 报告 + 证据坐标）→
-  按 `apply-borrowing.md` 落地 → `applied` → `ledger` → `clean`。
+- 一期流程：`intake`（同日多期用 `--slot`；`--from-dir` 默认收全部简报，
+  含「略过」段）→ **`triage`（强制分诊 deep/brief/skip）** →
+  `next`（默认只领非 skip）→ `workspace`（仅 deep 才 clone）→
+  按 `radar/prompts/analyze-repo.md` / `analyze-article.md` 深读 →
+  `record` → 按 `apply-borrowing.md` 落地 → `applied` → `ledger` →
+  `events --kind claim` 查领取者 → `clean`。
 - 数据：`radar/state/radar.db`（索引，gitignore）、
   `radar/intake|analyses|applied/`（正文，进 git）、`radar/LEDGER.md`（自动渲染，勿手改）。
 - 脚本只做确定性操作（解析/入账/clone/清理/渲染），**从不调用模型**；

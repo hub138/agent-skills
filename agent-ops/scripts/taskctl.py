@@ -196,7 +196,8 @@ def list_kinds() -> list[str]:
     return sorted(p.stem for p in TEMPLATES.glob("*.md"))
 
 
-def render_prompt(kind: str, inp: dict, outdir: Path, name: str) -> str:
+def render_prompt(kind: str, inp: dict, outdir: Path, name: str,
+                  extra: str = "") -> str:
     """按任务类型渲染提示词。用户永远不需要手写 prompt。"""
     tpl = TEMPLATES / f"{kind}.md"
     if not tpl.exists():
@@ -222,9 +223,14 @@ def render_prompt(kind: str, inp: dict, outdir: Path, name: str) -> str:
     # 但此前只靠模板作者自觉引用，实际没附加。这里落实承诺：
     # 所有任务提示词统一带上收工契约（含断点快照四问），不再依赖各模板复制。
     contract = TEMPLATES / "_done-contract.md"
-    if contract.exists() and "断点快照四问" not in text:
-        text = (text.rstrip() + "\n\n---\n\n"
-                + contract.read_text(encoding="utf-8"))
+    if contract.exists():
+        contract_text = contract.read_text(encoding="utf-8").strip()
+        # 用契约正文片段判断，而不是某个关键词：模板只提一句「四问」不该跳过整份契约。
+        if contract_text[:60] not in text:
+            text = text.rstrip()
+            if extra.strip():
+                text += "\n" + extra.strip() + "\n"
+            text += "\n\n---\n\n" + contract_text
     return text
 
 
@@ -492,8 +498,9 @@ def ensure_task_dir(task: sqlite3.Row) -> str:
     if goal_md.exists():
         extra += ("\n## 当前任务目标（管理者可能已调整，以此为准）\n"
                   + goal_md.read_text(encoding="utf-8")[:800] + "\n")
-    pp.write_text(render_prompt(task["kind"], inp, outdir, task["name"]) + extra,
-                  encoding="utf-8")
+    pp.write_text(
+        render_prompt(task["kind"], inp, outdir, task["name"], extra=extra),
+        encoding="utf-8")
     return pp.read_text(encoding="utf-8")
 
 

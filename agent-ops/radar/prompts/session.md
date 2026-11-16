@@ -25,8 +25,8 @@
 
 ## 2. 前置阅读（不许跳过）
 
-1. `GOVERNANCE.md` 第 1、3、4 节：权威源、八步流程、门禁。
-2. `ANATOMY.md` 第 6、8 节：影响矩阵、雷达数据流。
+1. **通读** `GOVERNANCE.md` 全文（重点：权威源、八步流程、门禁）。
+2. **通读** `ANATOMY.md` 全文（重点：影响矩阵、雷达数据流、外部引用）。
 3. 在 `FIELD-NOTES.md` 搜索本期候选的关键词（租约、信封、快照、沙箱、续跑、清理）。
    踩过的坑直接用当时的结论，不要重新发明。
 
@@ -39,7 +39,8 @@ python3 scripts/radar_cli.py intake --file <brief.md> --date <YYYY-MM-DD>
 python3 scripts/radar_cli.py intake --file <brief.md> --dry-run   # 解析不对劲时先看
 ```
 
-- 解析出的条数与简报明显不符 → 用 `--dry-run` 对照原文；仍不对就用 `--json-file`。
+- 解析出的条数与简报明显不符 → 用 `--dry-run` 对照原文；仍不对就按
+  `radar/prompts/intake-fallback.md` 产出严格 JSON，再 `--json-file` 入账。
 - 一期只入一次。重复执行会因 `(日期, sha256)` 唯一约束被识别为 duplicate，这是预期行为。
 
 ### Step 1 · 先分诊，再决定读多深（强制）

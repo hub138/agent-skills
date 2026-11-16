@@ -120,10 +120,11 @@ def ensure_workspace(url: str, root: Path, *,
 
 
 def clean(cache: Path, targets: list[dict], *, max_mb: int | None = None,
-          dry_run: bool = False) -> dict:
+          ttl_count: int | None = None, dry_run: bool = False) -> dict:
     """删除台账里记录过、且位于缓存根内的工作区。
 
-    targets: [{"path": ..., "bytes": ...}]；先按 TTL 选出的，再按容量从旧到新补。
+    targets 前 ttl_count 个是 TTL 明确要删的，**不受容量上限短路影响**；
+    后面的只是容量兜底候选，缓存已低于上限时不再继续删。
     """
     root = Path(cache)
     root.mkdir(parents=True, exist_ok=True)
@@ -131,8 +132,10 @@ def clean(cache: Path, targets: list[dict], *, max_mb: int | None = None,
     removed: list[str] = []
     skipped: list[dict] = []
     current = dir_size(root)
+    if ttl_count is None:
+        ttl_count = len(targets)
 
-    for item in targets:
+    for idx, item in enumerate(targets):
         p = Path(item["path"])
         if not _inside(p, root):
             skipped.append({"path": str(p), "why": "越出缓存根"})
@@ -140,7 +143,8 @@ def clean(cache: Path, targets: list[dict], *, max_mb: int | None = None,
         if not p.exists():
             skipped.append({"path": str(p), "why": "已不存在"})
             continue
-        if max_mb is not None and current - freed <= max_mb * 1048576:
+        if (max_mb is not None and idx >= ttl_count
+                and current - freed <= max_mb * 1048576):
             break
         size = item.get("bytes") or dir_size(p)
         if not dry_run:

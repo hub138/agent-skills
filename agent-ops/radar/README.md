@@ -30,7 +30,9 @@ cd <skill 根>
 # 直接粘贴的文本
 python3 scripts/radar_cli.py intake --file /tmp/brief.md --date 2026-11-16
 
-# tech-radar 仓库里最新一期（需先 clone 到任意目录）
+# tech-radar 仓库：默认收全部带日期简报（同一天多期自动分批），
+# 也解析「略过」段；--latest 只收最新一份
+python3 scripts/radar_cli.py intake --from-dir ~/tech-radar
 python3 scripts/radar_cli.py intake --from-dir ~/tech-radar --latest
 ```
 
@@ -61,7 +63,7 @@ AI 会按 `prompts/session.md` 执行：先读治理文档 → 入账 → 逐条
 brief.md / 粘贴
    │ intake（解析 + 原文落盘 + 入账）
    ▼
-radar/intake/<日期>-<id>.md          ← 原文（进 git）
+（原文，公开版略）          ← 原文（进 git）
 radar/state/radar.db                 ← 索引（gitignore）
    │ next → workspace
    ▼
@@ -92,6 +94,8 @@ radar/LEDGER.md                      ← 台账渲染（自动生成，进 git�
 | `skip` | <3 分，或噪声词压过机制词 | 一句理由，不写报告 |
 
 规则可解释（`triage_reason` 列出命中的机制词与噪声词），因此判错时可以复核并修正规则。
+上游「略过」段的条目没有 core/innovation，词表天然吃亏，因此至少进 `brief` 复核；
+明确的模型发布/融资等噪声仍直接 `skip`。
 深读后推翻 `skip` 会在台账留下 `triage_override` 事件。
 
 ### 4.2 再判定
@@ -190,7 +194,7 @@ python3 scripts/radar_cli.py clean --dry-run   # 只报告不删
 
 - 只删**台账记录过**且 resolve 后仍在缓存根内的路径；缓存根外一律跳过。
 - 不跟随符号链接删除；只 `shutil.rmtree` 目录。
-- 单仓库默认 500MB 上限，超限标记但不静默删除。
+- 单仓库上限见 `scripts/radar_workspace.py:MAX_MB_DEFAULT`，超限标记但不静默删除。
 - `radar/intake|analyses|applied|LEDGER.md` 永不参与清理。
 
 ---
@@ -220,6 +224,7 @@ python3 scripts/radar_cli.py clean --dry-run   # 只报告不删
 | `radar_cli.py record --candidate N --report ... --verdict ...` | 登记分析结论 |
 | `radar_cli.py applied --candidate N --files ... --summary ...` | 登记落地变更 |
 | `radar_cli.py ledger` | 重新渲染 `radar/LEDGER.md` |
+| `radar_cli.py events --kind claim` | 查领取者 / 覆盖事件等审计流 |
 | `radar_cli.py status [--json]` | 汇总 + 磁盘 + 最近事件 |
 | `radar_cli.py clean [--days N] [--max-mb N] [--dry-run]` | 清理工作区 |
 

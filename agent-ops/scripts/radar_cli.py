@@ -55,16 +55,17 @@ def _date_from_name(path: Path) -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def _latest_brief(repo: Path) -> Path:
+def _brief_files(repo: Path, latest: bool = False) -> list[Path]:
+    """列出雷达仓库里的简报。默认收全部（同一天多期都能进），--latest 只收最新一份。"""
     for sub in ("data/briefs", "briefs", "data"):
         d = repo / sub
         if not d.is_dir():
             continue
-        files = sorted(d.glob("*.md"))
-        dated = [f for f in files if re.search(r"\d{4}-\d{2}-\d{2}", f.name)]
+        dated = sorted(f for f in d.glob("*.md")
+                       if re.search(r"\d{4}-\d{2}-\d{2}", f.name))
         if dated:
-            return dated[-1]
-    raise SystemExit("在 %s 下没找到带日期的简报 md（找 data/briefs/*.md）" % repo)
+            return dated[-1:] if latest else dated
+    return []
 
 
 def _read_text(src: str | None) -> str:
@@ -85,51 +86,78 @@ def cmd_init(args) -> int:
 def cmd_intake(args) -> int:
     conn = store.connect()
     store.init_db(conn)
+    today = datetime.now().strftime("%Y-%m-%d")
+    batches: list[dict] = []
+
     if args.json_file:
         payload = json.loads(Path(args.json_file).read_text(encoding="utf-8"))
-        text = payload.get("raw") or json.dumps(payload, ensure_ascii=False)
-        items = payload.get("items")
-        date = args.date or payload.get("date") or datetime.now().strftime("%Y-%m-%d")
-        title = args.title or payload.get("title", "")
-        source, src_path = "json", args.json_file
+        batches.append({
+            "text": payload.get("raw") or json.dumps(payload, ensure_ascii=False),
+            "date": args.date or payload.get("date") or today,
+            "title": args.title or payload.get("title", ""),
+            "source": "json", "src_path": args.json_file,
+            "items": payload.get("items"),
+            "slot": args.slot or payload.get("slot", ""),
+        })
+    elif args.from_dir:
+        files = _brief_files(Path(args.from_dir).expanduser(), args.latest)
+        if not files:
+            raise SystemExit("没找到带日期的简报 md（找 data/briefs/*.md）")
+        by_date: dict[str, list[Path]] = {}
+        for f in files:
+            by_date.setdefault(_date_from_name(f), []).append(f)
+        for date, group in sorted(by_date.items()):
+            for idx, f in enumerate(sorted(group), 1):
+                auto_slot = "%02d" % idx if len(group) > 1 else ""
+                batches.append({
+                    "text": f.read_text(encoding="utf-8"),
+                    "date": args.date or date,
+                    "title": args.title or "",
+                    "source": "tech-radar", "src_path": str(f),
+                    "items": None, "slot": args.slot or auto_slot,
+                })
     else:
-        if args.from_dir:
-            src = _latest_brief(Path(args.from_dir).expanduser())
-            if args.date is None and not args.latest:
-                pass
-            text = src.read_text(encoding="utf-8")
-            source, src_path = "tech-radar", str(src)
-            date = args.date or _date_from_name(src)
-            items = None
-        else:
-            text = _read_text(args.file)
-            source, src_path = args.source, (args.file or "stdin")
-            date = args.date or (datetime.now().strftime("%Y-%m-%d"))
-            items = None
-        title = args.title or ""
+        batches.append({
+            "text": _read_text(args.file), "date": args.date or today,
+            "title": args.title or "", "source": args.source,
+            "src_path": args.file or "stdin", "items": None, "slot": args.slot,
+        })
+
     if args.dry_run:
-        items = items if items is not None else store.parse_brief(text)
-        _out({"items": items, "count": len(items)}, args.json)
+        all_items = []
+        for b in batches:
+            items = b["items"] if b["items"] is not None else store.parse_brief(b["text"])
+            all_items.extend(items)
+        _out({"count": len(all_items), "batches": len(batches),
+              "items": all_items}, args.json)
         return 0
-    try:
-        res = store.ingest_brief(conn, text, brief_date=date, title=title,
-                                 source=source, source_path=src_path, items=items)
-    except ValueError as exc:
-        print("intake 失败：%s" % exc, file=sys.stderr)
-        return 2
-    # 原始简报落盘，保证正文可追溯（DB 只存 sha）
+
+    results = []
     out_dir = store.RADAR_DIR / "intake"
     out_dir.mkdir(parents=True, exist_ok=True)
-    raw_out = out_dir / ("%s-%s.md" % (date, res["brief_id"]))
-    if not res["duplicate"]:
-        raw_out.write_text(text if text.endswith("\n") else text + "\n",
-                           encoding="utf-8")
-        # 台账里的来源必须是仓库内路径；/tmp 会被清理，不能作为追溯依据。
-        conn.execute("UPDATE briefs SET source_path=? WHERE id=?",
-                     (store.rel(raw_out), res["brief_id"]))
-        conn.commit()
-    res["raw_path"] = store.rel(raw_out)
-    _out(res, args.json)
+    for b in batches:
+        try:
+            res = store.ingest_brief(
+                conn, b["text"], brief_date=b["date"], slot=b["slot"],
+                title=b["title"], source=b["source"],
+                source_path=b["src_path"], items=b["items"])
+        except ValueError as exc:
+            print("intake 失败：%s（%s）" % (exc, b["src_path"]), file=sys.stderr)
+            return 2
+        raw_out = out_dir / ("%s-%s.md" % (b["date"], res["brief_id"]))
+        if not res["duplicate"]:
+            raw_out.write_text(
+                b["text"] if b["text"].endswith("\n") else b["text"] + "\n",
+                encoding="utf-8")
+            # 台账来源必须是仓库内路径；/tmp 会被清理，不能作为追溯依据。
+            conn.execute("UPDATE briefs SET source_path=? WHERE id=?",
+                         (store.rel(raw_out), res["brief_id"]))
+            conn.commit()
+        res["raw_path"] = store.rel(raw_out)
+        res["slot"] = b["slot"]
+        results.append(res)
+    _out({"batches": len(results), "results": results}
+         if len(results) != 1 else results[0], args.json)
     return 0
 
 
@@ -222,18 +250,16 @@ def cmd_record(args) -> int:
     if not report.exists():
         raise SystemExit("分析报告不存在：%s（先写报告再入账）" % report)
     cand = _candidate(conn, args.candidate)
+    override = ""
     if (cand.get("triage_route") == "skip"
             and args.verdict in ("adopt", "adapt")):
-        # 允许深读后推翻分诊，但必须留痕：分诊规则下次要能据此修正。
-        store.audit(conn, "triage_override", {
-            "candidate_id": args.candidate, "verdict": args.verdict,
-            "reason": args.reason})
+        override = args.reason or "深读后推翻 skip 分诊"
     store.record_analysis(
         conn, args.candidate, report_path=store.rel(report),
         verdict=args.verdict,
         mechanisms=args.mechanism or [], evidence=args.evidence or [],
         cost=args.cost, risk=args.risk, relevance=args.relevance,
-        reason=args.reason)
+        reason=args.reason, override_reason=override)
     _out({"candidate": args.candidate, "verdict": args.verdict,
           "report": store.rel(report)}, args.json)
     return 0
@@ -249,6 +275,18 @@ def cmd_applied(args) -> int:
         commit_sha=args.commit)
     _out({"candidate": args.candidate, "files": args.files,
           "commit": args.commit}, args.json)
+    return 0
+
+
+def cmd_events(args) -> int:
+    conn = store.connect()
+    store.init_db(conn)
+    rows = store.events_by_kind(conn, args.kind, args.limit)
+    if args.json:
+        _out({"count": len(rows), "events": rows}, True)
+    else:
+        for r in rows:
+            print("%s %-18s %s" % (r["ts"], r["kind"], r["detail"][:140]))
     return 0
 
 
@@ -278,6 +316,7 @@ def cmd_clean(args) -> int:
     conn = store.connect()
     store.init_db(conn)
     targets = store.clean_candidates(conn, args.days)
+    ttl_count = len(targets)
     if args.max_mb is not None:
         # TTL 之外再按容量兜底：把仍在使用但最旧的工作区排到后面
         extra = [dict(r) for r in conn.execute(
@@ -286,7 +325,7 @@ def cmd_clean(args) -> int:
         seen = {t["path"] for t in targets}
         targets += [e for e in extra if e["path"] not in seen]
     res = ws.clean(store.cache_root(), targets, max_mb=args.max_mb,
-                   dry_run=args.dry_run)
+                   ttl_count=ttl_count, dry_run=args.dry_run)
     if res["removed"] and not args.dry_run:
         store.mark_cleaned(conn, res["removed"])
     _out(res, args.json)
@@ -368,6 +407,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = new("ledger", "渲染 radar/LEDGER.md")
     p.set_defaults(func=cmd_ledger)
+
+    p = new("events", "按类型查审计事件（claim / triage_override / ...）")
+    p.add_argument("--kind", help="事件类型")
+    p.add_argument("--limit", type=int, default=50)
+    p.set_defaults(func=cmd_events)
 
     p = new("status", "汇总 + 磁盘")
     p.set_defaults(func=cmd_status)

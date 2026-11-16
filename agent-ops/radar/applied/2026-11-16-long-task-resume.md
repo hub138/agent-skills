@@ -36,7 +36,7 @@
 ## 门禁
 
 ```
-pytest tests/ -q                58 passed（新增 1 项契约渲染用例）
+pytest 全绿（项数以 doccheck 为准）
 doccheck.py                     OK 文档数字与代码事实一致
 agentctl.py status              OK
 agentctl.py status --json       OK

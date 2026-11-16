@@ -5,6 +5,10 @@
 """
 from __future__ import annotations
 
+import json
+import os
+import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -225,6 +229,127 @@ def test_record_analysis_rolls_back_with_audit(conn, monkeypatch):
     assert conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0] == 0
     assert conn.execute(
         "SELECT COUNT(*) FROM events WHERE kind='analysis'").fetchone()[0] == 0
+
+
+REAL_BRIEF_WITH_SKIPPED = """# 技术情报简报 2026-11-15
+
+## 值得看
+
+### GitHub - TencentCloud/CubeSandbox
+- 核心：微虚拟机做 Agent 沙箱
+- 创新点：快照引擎，百毫秒级克隆
+- 链接：https://github.com/TencentCloud/CubeSandbox
+
+## 略过
+GitHub - Tencent/LoopForge —— 偏编排流程，无性能数据
+SuperAgent 实战：让 Router 看见全局 —— 无复核硬指标，工程复盘
+"""
+
+
+def test_real_brief_skipped_section_is_parsed():
+    """立项理由就是重评「略过」；丢掉它们等于功能假的。"""
+    items = store.parse_brief(REAL_BRIEF_WITH_SKIPPED)
+    assert len(items) == 3, [i["title"] for i in items]
+    assert any("LoopForge" in i["title"] for i in items)
+    skipped = [i for i in items if "【上游略过】" in i["core"]]
+    assert len(skipped) == 2
+    # 与编排相关的略过条目必须进复核；纯噪声（与读者无关/观点）直接跳过
+    routes = {i["title"]: store.triage_text(i["title"], i["core"])["route"]
+              for i in skipped}
+    assert routes["GitHub - Tencent/LoopForge"] == "brief"
+    assert routes["SuperAgent 实战：让 Router 看见全局"] == "brief"
+    noisy = ("## 略过\n- 云硬盘性能与低时延选型 —— 与读者无关\n"
+             "- 某模型正式发布 —— 模型发布，与读者无关\n")
+    skipped_noisy = [i for i in store.parse_brief(noisy)
+                     if "【上游略过】" in i["core"]]
+    assert all(store.triage_text(i["title"], i["core"])["route"] == "skip"
+               for i in skipped_noisy)
+
+
+def test_cli_slot_is_really_wired(tmp_path):
+    """必须走真实 CLI：此前测试绕过 CLI 直接调 store，掩盖了 --slot 未接线。"""
+    brief = tmp_path / "brief.md"
+    brief.write_text(BRIEF_TECH, encoding="utf-8")
+    state = tmp_path / "state"
+    env = dict(os.environ, RADAR_HOME=str(state),
+               RADAR_DB=str(state / "radar.db"))
+    cli = str(ROOT / "scripts" / "radar_cli.py")
+    proc = subprocess.run(
+        [sys.executable, cli, "intake", "--file", str(brief),
+         "--date", "2026-11-16", "--slot", "11:00", "--json"],
+        env=env, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["slot"] == "11:00"
+    conn = sqlite3.connect(str(state / "radar.db"))
+    assert conn.execute("SELECT slot FROM briefs").fetchone()[0] == "11:00"
+
+
+def test_clean_max_mb_does_not_swallow_ttl(tmp_path):
+    cache = tmp_path / "cache"
+    paths = []
+    for i in range(3):
+        p = cache / ("r%d" % i)
+        p.mkdir(parents=True)
+        (p / "x").write_text("x" * 100, encoding="utf-8")
+        paths.append({"path": str(p), "bytes": 100})
+    res = ws.clean(cache, paths, max_mb=1000, ttl_count=2)
+    assert len(res["removed"]) == 2, "缓存低于上限时 TTL 目标仍必须删"
+    assert Path(paths[2]["path"]).exists()
+
+
+def test_claim_event_records_actor(conn):
+    store.ingest_brief(conn, BRIEF_PASTE, brief_date="2026-11-16")
+    store.take_next(conn)
+    rows = store.events_by_kind(conn, "claim")
+    assert len(rows) == 1
+    assert "actor" in json.loads(rows[0]["detail"])
+
+
+def test_override_is_same_transaction_as_analysis(conn, monkeypatch, tmp_path):
+    store.ingest_brief(conn, BRIEF_TECH, brief_date="2026-11-16")
+    cand = store.take_next(conn)
+    report = tmp_path / "r.md"
+    report.write_text("# r\n", encoding="utf-8")
+    original = store._event_row
+
+    def fail_on_override(c, kind, detail, ts=None):
+        if kind == "triage_override":
+            raise RuntimeError("override write failed")
+        return original(c, kind, detail, ts)
+
+    monkeypatch.setattr(store, "_event_row", fail_on_override)
+    with pytest.raises(RuntimeError):
+        store.record_analysis(conn, cand["id"],
+                              report_path=store.rel(report), verdict="adopt",
+                              mechanisms=[], evidence=[],
+                              override_reason="复核后推翻")
+    assert conn.execute("SELECT COUNT(*) FROM analyses").fetchone()[0] == 0
+    assert conn.execute(
+        "SELECT COUNT(*) FROM events WHERE kind IN ('analysis','triage_override')"
+    ).fetchone()[0] == 0
+
+
+def test_triage_force_keeps_analyzed_route(conn, tmp_path):
+    store.ingest_brief(conn, BRIEF_PASTE, brief_date="2026-11-16")
+    cand = store.take_next(conn)
+    report = tmp_path / "r.md"
+    report.write_text("# r\n", encoding="utf-8")
+    store.record_analysis(conn, cand["id"], report_path=store.rel(report),
+                          verdict="skip", mechanisms=[], evidence=[])
+    before = conn.execute("SELECT triage_route FROM candidates WHERE id=?",
+                          (cand["id"],)).fetchone()[0]
+    store.triage_pending(conn, force=True)
+    after = conn.execute("SELECT triage_route FROM candidates WHERE id=?",
+                         (cand["id"],)).fetchone()[0]
+    assert before == after, "force 不能静默改掉已分析条目的路由"
+
+
+def test_render_prompt_contract_is_last(tmp_path):
+    import taskctl
+    text = taskctl.render_prompt("generic", {"topic": "x"}, tmp_path, "t",
+                                 extra="## 管理者最新指令\n请继续")
+    assert "断点快照四问" in text
+    assert text.index("管理者最新指令") < text.index("断点快照四问")
 
 
 def test_render_prompt_includes_done_contract(tmp_path):

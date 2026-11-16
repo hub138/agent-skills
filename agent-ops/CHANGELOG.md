@@ -3,6 +3,46 @@
 > 每次提交一段，倒序。格式见 `GOVERNANCE.md` 5.1：
 > 改了什么 / 为什么 / 门禁 / 回滚。不写「优化了一下」。
 
+## 2026-11-16 · 独立审查：证伪「无效优化 / 重复建设」
+
+### 审查方式
+独立只读审查（54 次工具调用）+ 真实负向测试 + 真实简报数据对照。下面每条都有证据，
+不是「测试都过了所以没问题」。
+
+### 确认为真问题并修复
+- `intake --slot` 没传给入库函数；`--latest` 是空 `pass` 分支 → 重写 `cmd_intake`：
+  `--from-dir` 默认收全部简报、同日多期自动分批，`--latest` 才只收最新。
+- 真实简报的 `## 略过` 段完全没解析（11-15 那期 12 条只进 2 条）→ 新增解析，
+  实测回到 12 条；略过条目按理由复核，明显噪声仍跳过。
+- `clean --days + --max-mb` 组合被容量短路吞掉 TTL 清理 → `ttl_count` 区分，测试钉住。
+- `claim` 事件没有 actor、`triage_override` 单独提交 → 事件记 actor/主机，
+  override 与分析同事务，新增 `events --kind` 作为消费入口。
+- `triage --force` 会覆盖已分析条目路由 → 只重打 `new/screened`。
+- 契约自动附加不在末尾、用关键词判重 → `render_prompt(extra=)` 保证契约在最后，
+  用契约正文片段判重。
+- 治理文档把门禁写成 4/5/6 条互相打架、写死测试数、公开版有悬空引用 →
+  统一到 `GOVERNANCE` 第 4 节六条；数字改为「以 doccheck 为准」；
+  `SKILL.md` 导航表登记全部新模块并纳入 `doccheck` 检查；
+  `desensitize.py` 改掉公开版对 `radar/intake` 的悬空引用。
+
+### 证明不是重复
+- **triage 与上游预筛判据不同**：上游 `rank.py`/「略过」按大众读者信息量，
+  本 skill 按编排机制词。实测 11-15 真实简报 12 条 → `1 deep / 5 brief / 6 skip`：
+  上游判略过的 LoopForge / agent-runtime / SuperAgent 全部进入复核，
+  而推荐位里的「训推一致性」被判 `skip`。
+- 两份 SQLite 数据不同（任务队列 vs 雷达台账）；三个检查器职责不同
+  （文档数字 / 文档结构 / 运行时在岗）。
+- `templates/tasks/*.md` 没有与契约重复的条款；`render_prompt` 追加确实让 worker
+  多拿到整份契约（约 5KB）。
+
+### 负向验证（可证伪）
+- 新建未登记脚本 `scripts/_ghost_probe.py` → `doccheck` 退出 1，报「未出现在 ANATOMY」；
+- 删除 ANATOMY 第 10 节 → `anatomy_check` 退出 1；恢复后两者 OK；
+- 真实 CLI 走 `--slot` → DB 里 slot 不再是空串（此前测试绕过 CLI 掩盖了这个问题）。
+
+### 门禁
+pytest 75 passed；doccheck OK；anatomy_check OK；agentctl status/json OK；pyflakes 0。
+
 ## 2026-11-16 · 雷达分诊：先筛后读（必要功能）
 
 - 新增 `triage` 子命令与 `triage_score/route/reason/at` 四列（只加列迁移）。
@@ -32,7 +72,7 @@
 - 扩展清单与边界：补对账/审阅两步；明确 ANATOMY 不自动生成。
 
 ### 门禁
-pytest 64 passed；doccheck OK（含 anatomy_check）；agentctl status/json OK；
+pytest 全绿（项数以 doccheck 为准）
 pyflakes `undefined name '` = 0。
 
 ### 回滚
@@ -77,7 +117,7 @@ LoopForge / agent-runtime / SuperAgent / GCA 四条全判「略过」，而这�
    `taskctl.render_prompt()` 改为**真正附加**契约（此前文档声称自动附加、代码没做），
    并用测试钉住「四问必须出现在提示词里」。
 2. **openclaw-enterprise → 雷达台账**：`radar_store.tx()` 把候选状态、分析/变更记录、
-   审计事件放进同一事务；审计写不进去就整体回滚。
+   审计事件放进同一事务；DB 审计写不进去就整体回滚；`audit.jsonl` 是提交后的镜像。
 
 ### 补充：第二轮深读（同日）
 
@@ -90,7 +130,7 @@ LoopForge / agent-runtime / SuperAgent / GCA 四条全判「略过」，而这�
 - **新增落地**：`take_next` 领取时同事务写 `claim` 事件
   （对应 openclaw `postgres-work-queue.ts:62`）。
 - 8 份分析报告均追加「第二轮深读补充」，并标注未覆盖范围。
-- 门禁：pytest 58 passed；doccheck OK；pyflakes `undefined name '` = 0。
+- 门禁：pytest 全绿（项数以 doccheck 为准）
 
 ### 修复：既有缺陷
 

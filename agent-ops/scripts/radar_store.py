@@ -6,6 +6,7 @@ radar/analyses|applied/*.md 并进 git；这里只存路径、结论、证据坐
 
 提交纪律（借鉴 OpenClaw 的 design.md:125）：候选状态、分析/变更记录、审计事件
 必须在同一个事务里提交；写不进去就整体回滚。审计不是事后补的日志。
+`audit.jsonl` 是事务提交后的镜像（best effort），权威审计是 DB 的 `events` 表。
 
 解析两种简报格式：
   1. tech-radar 自动生成：`### 标题` + `- 核心：` / `- 创新点：` / `- 谁该看：` / `- 链接：`
@@ -19,6 +20,7 @@ import hashlib
 import json
 import os
 import re
+import socket
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -164,10 +166,45 @@ def _strip_md(text: str) -> str:
 
 
 def parse_brief(text: str) -> list[dict]:
-    """解析简报正文，返回候选列表。两种格式都试，取解析出更多条的那次。"""
+    """解析简报正文：推荐位 + 略过位都要拿到。
+
+    「略过」是上游按大众读者判的，本 skill 立项就是为了重评这批条目；
+    丢掉它们等于把雷达最该看的部分丢了（实测：11-15 那期 12 条只解析出 2 条）。
+    """
     blocks = _parse_hash_blocks(text)
     numbered = _parse_numbered_blocks(text)
-    return blocks if len(blocks) >= len(numbered) else numbered
+    main = blocks if len(blocks) >= len(numbered) else numbered
+    combined = main + _parse_skipped_sections(text)
+    for i, it in enumerate(combined, 1):
+        it["seq"] = i
+    return combined
+
+
+def _parse_skipped_sections(text: str) -> list[dict]:
+    """解析 tech-radar 的 `## 略过` 段：`- 标题 —— 理由`（有的期无 `-` 前缀）。"""
+    out: list[dict] = []
+    in_section = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if re.match(r"^##\s*略过\s*$", line):
+            in_section = True
+            continue
+        if line.startswith("## "):
+            if in_section:
+                break
+            continue
+        if not in_section or not line:
+            continue
+        body = re.sub(r"^[-*]\s+", "", line)
+        if "——" not in body:
+            continue
+        title, reason = body.split("——", 1)
+        title, reason = _clean(title), _clean(reason)
+        if not title:
+            continue
+        out.append({"title": title, "url": "", "core": "【上游略过】" + reason,
+                    "innovation": "", "audience": ""})
+    return _finish(out)
 
 
 def _parse_hash_blocks(text: str) -> list[dict]:
@@ -309,6 +346,12 @@ MECHANISM_WEIGHTS = {
     "缓存": 1, "限流": 2, "退避": 2,
 }
 
+# 上游「略过」理由里这些措辞说明与本 skill 无关；没有机制词时可直接 skip。
+UPSTREAM_NOISE_REASON = (
+    "与读者无关", "无新信息", "通用科普", "观点", "概念文章",
+    "语言观点", "无运行时数据", "产品发布", "模型发布",
+)
+
 EXCLUDE_WEIGHTS = {
     "模型发布": 4, "正式发布": 2, "开源模型": 2, "融资": 4, "估值": 4,
     "人事": 3, "离职": 3, "招聘": 3, "榜单": 4, "排名": 2, "价格": 2,
@@ -331,15 +374,24 @@ def triage_text(title: str, core: str = "", innovation: str = "",
                    if _hit(w, text)), key=lambda x: (-x[1], x[0]))
     noise = sorted(((w, wt) for w, wt in EXCLUDE_WEIGHTS.items()
                     if _hit(w, text)), key=lambda x: (-x[1], x[0]))
+    noise_total = sum(wt for _, wt in noise)
     score = (sum(wt for _, wt in mech) + (2 if kind == "repo" else 0)
-             - sum(wt for _, wt in noise))
+             - noise_total)
     score = max(0, score)
     route = "deep" if score >= 5 else "brief" if score >= 3 else "skip"
+    # 上游判略过的条目没有 core/innovation，词表天然吃亏；至少给一次摘要级复核，
+    # 但明确的模型发布/融资等噪声仍直接跳过。
+    upstream_skip = "【上游略过】" in text
+    if (upstream_skip and route == "skip" and noise_total < 4
+            and not any(w in text for w in UPSTREAM_NOISE_REASON)):
+        route = "brief"
     bits = ["机制词：" + "、".join(w for w, _ in mech[:6])] if mech else ["无机制词"]
     if kind == "repo":
         bits.append("仓库 +2")
     if noise:
         bits.append("噪声词：" + "、".join(w for w, _ in noise[:4]))
+    if upstream_skip:
+        bits.append("上游略过（至少复核摘要）")
     return {"score": score, "route": route,
             "mechanisms": [w for w, _ in mech], "noise": [w for w, _ in noise],
             "reason": "；".join(bits)}
@@ -367,7 +419,10 @@ def triage_candidate(conn: sqlite3.Connection, candidate_id: int) -> dict:
 
 def triage_pending(conn: sqlite3.Connection, force: bool = False) -> list[dict]:
     sql = "SELECT id FROM candidates"
-    if not force:
+    if force:
+        # 只重打未分析的；已 analyzed/applied 的路由被结论引用，不能静默改掉。
+        sql += " WHERE status IN ('new','screened')"
+    else:
         sql += " WHERE triage_score IS NULL"
     sql += " ORDER BY id"
     return [triage_candidate(conn, r["id"]) for r in conn.execute(sql)]
@@ -415,7 +470,9 @@ def take_next(conn: sqlite3.Connection, include_skip: bool = False) -> dict | No
                          "WHERE id=? AND status='new'", (ts, row["id"]))
             # 领取与领取证据同事务（OpenClaw postgres-work-queue.ts:62 的 claim+audit）：
             # 没有这条事件，事后无法回答「这条是谁在什么时候领走的」。
-            detail = {"candidate_id": row["id"]}
+            detail = {"candidate_id": row["id"],
+                      "actor": os.environ.get("RADAR_ACTOR")
+                      or "%s:%d" % (socket.gethostname(), os.getpid())}
             _event_row(conn, "claim", detail, ts)
     if detail:
         _audit_file(ts, "claim", detail)
@@ -444,7 +501,8 @@ def set_status(conn: sqlite3.Connection, candidate_id: int, status: str,
 def record_analysis(conn: sqlite3.Connection, candidate_id: int, *,
                     report_path: str, verdict: str, mechanisms: list[str],
                     evidence: list[str], cost: str = "", risk: str = "",
-                    relevance: int | None = None, reason: str = "") -> None:
+                    relevance: int | None = None, reason: str = "",
+                    override_reason: str = "") -> None:
     if verdict not in VERDICT_WORDS:
         raise ValueError("verdict 只能是 adopt/adapt/skip")
     ts = now_str()
@@ -466,6 +524,10 @@ def record_analysis(conn: sqlite3.Connection, candidate_id: int, *,
         _set_status_row(conn, candidate_id, "analyzed", relevance=relevance,
                         verdict=verdict, reason=reason, ts=ts)
         _event_row(conn, "analysis", detail, ts)
+        if override_reason:
+            _event_row(conn, "triage_override",
+                       {"candidate_id": candidate_id, "verdict": verdict,
+                        "reason": override_reason}, ts)
     _audit_file(ts, "analysis", detail)
 
 
@@ -603,6 +665,18 @@ def render_ledger(conn: sqlite3.Connection, out: Path = LEDGER_PATH) -> str:
 def recent_events(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     return [dict(r) for r in conn.execute(
         "SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))]
+
+
+def events_by_kind(conn: sqlite3.Connection, kind: str | None = None,
+                   limit: int = 50) -> list[dict]:
+    sql = "SELECT * FROM events"
+    args: list = []
+    if kind:
+        sql += " WHERE kind=?"
+        args.append(kind)
+    sql += " ORDER BY id DESC LIMIT ?"
+    args.append(limit)
+    return [dict(r) for r in conn.execute(sql, args)]
 
 
 def clean_candidates(conn: sqlite3.Connection, days: int) -> list[dict]:

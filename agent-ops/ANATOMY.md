@@ -45,7 +45,7 @@ agent-ops/
 ├── CHANGELOG.md              # 变更历史（每次提交一段，含门禁与回滚）
 ├── FIELD-NOTES.md            # 实战坑（现象→根因→修法→验证），只增不改
 ├── memory.md                 # 上下文工程与记忆：三层记忆、压缩、决策留痕
-├── orchestrator.md           # 编排细节：派发/看护模式、上下文预算、公开版同步
+├── orchestrator.md           # 编排细节：派发/看护模式、上下文预算
 ├── model-catalog.md          # 模型 credits 分层（镜像 model_policy.py，非权威）
 ├── knot-limits.md            # knot 限流与 AIMD（内部数字不进公开版）
 ├── knot-concurrency-playbook.md
@@ -158,7 +158,7 @@ brief.md / 粘贴文本 → intake（同日多期用 slot；解析入账 + 原�
 | 雷达台账 | `radar/state/radar.db` | 否 |
 | 雷达审计流 | `radar/state/audit.jsonl` | 否 |
 | 雷达 clone 缓存 | `radar/state/cache/`（`RADAR_CACHE` 可覆盖） | 否 |
-| 雷达简报原文 | `radar/intake/*.md` | 是 |
+| 雷达简报原文 | `（原文，公开版略）` | 是 |
 | 雷达分析/落地 | `radar/analyses/`、`radar/applied/` | 是 |
 | 雷达台账渲染 | `radar/LEDGER.md` | 是（自动生成，勿手改） |
 
@@ -243,7 +243,7 @@ done
 ```
 输入：简报 md（tech-radar 的 data/briefs/*.md，或人直接粘贴的文本）
   ↓ intake --slot 11:00（同一天多期；按内容 sha 去重）
-radar/intake/<日期>-<id>.md        原文，进 git
+（原文，公开版略）        原文，进 git
 radar/state/radar.db               索引：briefs/candidates/analyses/changes/workspaces
   ↓ next（原子领取 + claim 事件）→ workspace（clone/刷新）
 radar/analyses/<日期>/<slug>.md    每条：机制、证据、判定、成本、风险
@@ -272,7 +272,7 @@ radar/LEDGER.md                    台账渲染（自动生成）
 修正时覆盖 `analyses` 并重渲染台账，在报告里写清「第一轮看到了什么、第二轮补了什么」，
 不要只改 verdict。
 
-### 8.5 提示词清单（按执行顺序）
+### 8.4 提示词清单（按执行顺序）
 
 | 文件 | 什么时候用 | 必须产出 |
 |---|---|---|
@@ -285,10 +285,11 @@ radar/LEDGER.md                    台账渲染（自动生成）
 
 提示词是任务书，不是背景介绍：每份都带输入、步骤、证据纪律、反模式、完成判据。
 
-### 8.4 磁盘边界
+### 8.5 磁盘边界
 
 - clone 只在 `RADAR_CACHE`（默认 `radar/state/cache`）下，按 `host/org/repo` 分层。
-- 单仓库默认上限 500MB；超限不删，标记 `over_limit`，由 `clean` 处理。
+- 单仓库上限见 `scripts/radar_workspace.py:MAX_MB_DEFAULT`（默认 500MB）；
+  超限不删，标记 `over_limit`，由 `clean` 处理。
 - `clean` 只删**台账里记录过且 resolve 后仍在缓存根内**的路径；缓存根外的目录一律跳过。
 - 推荐每天/每周 `radar_cli.py clean --days 3 --max-mb 2000`，并在 `radar_cli.py status` 里看占用。
 

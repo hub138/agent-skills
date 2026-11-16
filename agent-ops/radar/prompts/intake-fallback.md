@@ -1,5 +1,6 @@
 # 任务书：简报解析兜底（radar/intake-fallback）
 
+> 由 `radar/prompts/session.md` 的 Step 0 触发。
 > 何时用：`radar_cli.py intake --dry-run` 解析出的条目数明显不对，
 > 或简报是混合格式（通知卡片、聊天记录、多期拼接）。
 > 原则：**只抽取原文里明确存在的内容，不补全、不猜测、不编 URL。**

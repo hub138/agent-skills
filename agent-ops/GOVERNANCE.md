@@ -27,10 +27,9 @@
 
 ### 1.1 ANATOMY 是活文档，不是更新日志
 
-每次 P1 及以上变更后必须做两件事：
-
-1. `python3 scripts/anatomy_check.py`：机器检查路径/脚本覆盖/影响矩阵/门禁是否漂移；
-2. 按 `radar/prompts/anatomy-review.md` **通读 ANATOMY 全文**，逐节判断
+每次 P1 及以上变更先跑 `python3 scripts/anatomy_check.py`（已并入 doccheck），
+机器检查路径/脚本覆盖/影响矩阵/门禁是否漂移。P2 及以上还必须
+按 `radar/prompts/anatomy-review.md` **通读 ANATOMY 全文**，逐节判断
    「成立 / 过时 / 不完整 / 矛盾 / 多余」，把过时与矛盾**重写**掉。
 
 不允许在文末追加「2026-xx-xx 更新：新增了 xxx」。同一事实出现两处，迟早在某一处骗人；
@@ -43,9 +42,12 @@
 | 级别 | 典型改动 | 必需动作 |
 |---|---|---|
 | **P0 文案** | 错别字、补一句解释、改示例 | `doccheck.py` |
-| **P1 行为** | 改一个脚本分支、加一个参数、修一个 bug | 失败测试 → 修复 → `pytest` + `doccheck` + 真业务路径冒烟 |
+| **P1 行为** | 改一个脚本分支、加一个参数、修一个 bug | 失败测试 → 修复 → 第 4 节门禁六条 |
 | **P2 机制** | 新子命令、新模块、DB 加列、新模板 | P1 + 按 `radar/prompts/anatomy-review.md` 通读并**重写**受影响的 ANATOMY 章节 + `SKILL.md` 导航 + `CHANGELOG.md` + 雷达留痕（若来自雷达） |
-| **P3 接口** | 改 SKILL.md 触发词、CLI 破坏性变更、装法变更 | P2 + 兼容层（旧调用仍可用）+ 4 个安装副本同步 + 公开版重新生成 |
+| **P3 接口** | 改 SKILL.md 触发词、CLI 破坏性变更、装法变更 | P2 + 兼容层（旧调用仍可用） |
+
+> 安装副本（4 处）与公开脱敏版**每次提交后都要同步**，不是 P3 专属；
+> 同步方式见 `ANATOMY.md` 第 7 节。
 
 **判定「是不是 P3」的依据**：外部（cron、其他 skill、你的自动化）是否按名字调用了你改的东西。查法见 `ANATOMY.md` 第 7 节。
 
@@ -64,7 +66,7 @@
 
 ---
 
-## 4. 门禁（提交前四条，缺一不可）
+## 4. 门禁（提交前六条，缺一不可）
 
 ```bash
 cd <skill 根>
@@ -85,7 +87,8 @@ python3 -m pyflakes scripts/*.py | grep -c "undefined name '"   # 必须为 0
 补充规则：
 
 - **改过函数体**：对比改动前后 `^def (\w+)` 集合，或用 `tests/test_cli_smoke.py::test_agentctl_has_all_core_functions` 兜底。
-- **改过雷达**：`python3 scripts/radar_cli.py status --json` 必须可解析；`intake --dry-run` 对一期真实简报能解析出条目。
+- **改过雷达**：`radar_cli.py status --json` 可解析；`intake --dry-run` 对一期**真实简报**
+  必须同时解析出「值得看」与「略过」段（用构造串测不出来）。
 - **改过公开版相关**：`python3 scripts/desensitize.py` 后，在产物里 grep 内部域名、内部路径、内部模型代号，必须 0 命中。
 - **失败就停**：门禁失败不许「先提交再说」。修不动就在 `CHANGELOG.md` 记为未完成并说明卡点。
 
@@ -100,7 +103,7 @@ python3 -m pyflakes scripts/*.py | grep -c "undefined name '"   # 必须为 0
 - 改了什么：新增 radar/ 与 scripts/radar_*.py；新增 GOVERNANCE/ANATOMY
 - 为什么：把技术雷达的「分析→借鉴→清理」变成可追溯闭环
 - 来源（可选）：radar 候选 #3（LoopForge）
-- 门禁：pytest 68 passed；doccheck OK；agentctl status OK；pyflakes undefined=0
+- 门禁：pytest 全绿（项数以 doccheck 为准）；doccheck OK；agentctl status OK；pyflakes undefined=0
 - 回滚：git revert <sha>
 ```
 
