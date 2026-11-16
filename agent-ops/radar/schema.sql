@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS candidates (
   relevance   INTEGER,                        -- 1..5，相对本 skill
   verdict     TEXT CHECK (verdict IN ('adopt', 'adapt', 'skip') OR verdict IS NULL),
   reason      TEXT NOT NULL DEFAULT '',
+  triage_score  INTEGER,                      -- 确定性打分（机制词加分/噪声词减分）
+  triage_route  TEXT CHECK (triage_route IN ('deep', 'brief', 'skip') OR triage_route IS NULL),
+  triage_reason TEXT NOT NULL DEFAULT '',
+  triage_at     TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL,
   UNIQUE (brief_id, seq)

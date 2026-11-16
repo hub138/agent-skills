@@ -81,6 +81,21 @@ radar/LEDGER.md                      ← 台账渲染（自动生成，进 git�
 
 ## 4. 判定口径
 
+### 4.1 先分诊（必要步骤，不是可选）
+
+每期先跑 `triage`，按确定性规则给三档路由：
+
+| 路由 | 判据（脚本） | 产出 |
+|---|---|---|
+| `deep` | 机制词加权 ≥5，或仓库 +2 后达标 | clone / 读全文，完整报告 |
+| `brief` | 3–4 分 | 5–10 行摘要，不 clone |
+| `skip` | <3 分，或噪声词压过机制词 | 一句理由，不写报告 |
+
+规则可解释（`triage_reason` 列出命中的机制词与噪声词），因此判错时可以复核并修正规则。
+深读后推翻 `skip` 会在台账留下 `triage_override` 事件。
+
+### 4.2 再判定
+
 | 结论 | 什么时候给 | 必须写清 |
 |---|---|---|
 | `adopt` | 机制直接成立，单机 Python 标准库环境可跑 | 最小实现 + 验证方式 |
@@ -198,8 +213,9 @@ python3 scripts/radar_cli.py clean --dry-run   # 只报告不删
 | 命令 | 作用 |
 |---|---|
 | `radar_cli.py intake --file/-from-dir/--json-file` | 收一期简报 |
-| `radar_cli.py list [--status new] [--brief 日期]` | 看候选与结论 |
-| `radar_cli.py next` | 原子领取一条待分析 |
+| `radar_cli.py triage [--force]` | 确定性分诊：deep / brief / skip |
+| `radar_cli.py list [--status new] [--brief 日期] [--route deep]` | 看候选与结论 |
+| `radar_cli.py next [--force]` | 原子领取一条待分析（默认跳过 skip） |
 | `radar_cli.py workspace --candidate N` | clone/刷新上游仓库 |
 | `radar_cli.py record --candidate N --report ... --verdict ...` | 登记分析结论 |
 | `radar_cli.py applied --candidate N --files ... --summary ...` | 登记落地变更 |

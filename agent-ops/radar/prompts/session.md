@@ -42,34 +42,39 @@ python3 scripts/radar_cli.py intake --file <brief.md> --dry-run   # 解析不对
 - 解析出的条数与简报明显不符 → 用 `--dry-run` 对照原文；仍不对就用 `--json-file`。
 - 一期只入一次。重复执行会因 `(日期, sha256)` 唯一约束被识别为 duplicate，这是预期行为。
 
-### Step 1 · 全量 triage（先粗后细）
-
-对每条候选给出 `relevance`（1–5，相对 agent-ops 的问题清单）与一句理由，写入台账：
+### Step 1 · 先分诊，再决定读多深（强制）
 
 ```bash
-python3 scripts/radar_cli.py list --brief <日期>
+python3 scripts/radar_cli.py triage             # 确定性打分，写入台账
+python3 scripts/radar_cli.py list --route deep  # 只看值得深读的
 ```
 
-`relevance` 参考：
+三档路由由脚本给出（机制词加分、噪声词减分、仓库 +2），规则可解释、可测试：
 
-| 分 | 含义 |
-|---|---|
-| 5 | 直接对应现有机制的缺口（租约、续跑、验证新鲜度、清理） |
-| 4 | 可改造后补缺口（上下文包、结果信封、节点编排） |
-| 3 | 提供对照，但不改代码也有价值（部署形态、多租户） |
-| 2 | 只对特定场景有用，本 skill 暂不涉及 |
-| 1 | 与本 skill 无关（模型发布、产品通稿、观点文） |
+| 路由 | 含义 | 你该做什么 |
+|---|---|---|
+| `deep` | 命中编排/租约/续跑/信封/审计等机制 | clone（仓库）或读全文，写完整分析报告 |
+| `brief` | 有相关词但信号弱 | **只写 5–10 行摘要**，不 clone、不写长报告 |
+| `skip` | 无关或噪声（模型发布/融资/榜单/通稿） | **只写一句理由**，不建报告；`next` 默认不领取 |
 
-**triage 不是结论**。5 分也要深读后才知道能不能落地；1 分也要在报告里留一句为什么。
+**默认只深读 deep；brief 摘要即可；skip 不写报告。** 一期产出不是「每条都有报告」，
+而是「值得读的读透，不值得的留下可复核的一句话」。
 
-### Step 2 · 逐条深读
+分诊不是结论：`brief` 深读后可能升为 `adopt`，`skip` 也可能被判错。
+认为判错时用 `next --force` 复核，`record` 会留下 `triage_override` 事件——
+规则要据此修正，而不是默默绕过。
+
+`relevance` 是深读后的价值判断（1–5），不是分诊分数，两者不要混用。
+
+### Step 2 · 深读 deep 条目
 
 按类型走对应任务书，**一条一个会话/上下文**，避免互相污染：
 
 - 仓库：`radar/prompts/analyze-repo.md`
 - 文章：`radar/prompts/analyze-article.md`
 
-深读顺序建议：先做 5 分和 4 分；3 分以下可以只写摘要级报告（仍要落盘）。
+深读顺序：先 `deep`，再按需处理 `brief`；`skip` 不启动深读。
+`brief` 的摘要仍要落盘（`radar/analyses/<日期>/`），但不要求完整章节。
 
 深读产出固定写到：
 

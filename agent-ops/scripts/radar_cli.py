@@ -133,30 +133,51 @@ def cmd_intake(args) -> int:
     return 0
 
 
+def cmd_triage(args) -> int:
+    conn = store.connect()
+    store.init_db(conn)
+    if args.candidate:
+        infos = [store.triage_candidate(conn, args.candidate)]
+    else:
+        infos = store.triage_pending(conn, force=args.force)
+    if args.json:
+        _out({"count": len(infos), "items": infos}, True)
+    else:
+        for i in infos:
+            print("#%-3d %-6s score=%-3d %s" % (
+                i["candidate_id"], i["route"], i["score"], i["reason"]))
+        if not infos:
+            print("没有待分诊的候选（用 --force 重新打分）")
+    return 0
+
+
 def cmd_list(args) -> int:
     conn = store.connect()
     store.init_db(conn)
-    rows = store.list_candidates(conn, status=args.status, brief=args.brief)
+    rows = store.list_candidates(conn, status=args.status, brief=args.brief,
+                                 route=args.route)
     if not args.json:
-        print("%-4s %-11s %-6s %-3s %-7s %s" %
-              ("#", "日期", "状态", "相", "结论", "条目"))
+        print("%-4s %-11s %-6s %-6s %-3s %-7s %s" %
+              ("#", "日期", "状态", "路由", "相", "结论", "条目"))
     for r in rows:
         if args.json:
             print(json.dumps(r, ensure_ascii=False))
         else:
-            print("%-4d %-11s %-6s %-3s %-7s %s" % (
+            print("%-4d %-11s %-6s %-6s %-3s %-7s %s" % (
                 r["id"], r["brief_date"], r["status"],
+                r.get("triage_route") or "-",
                 r["relevance"] if r["relevance"] is not None else "-",
-                r["verdict"] or "-", r["title"][:70]))
+                r["verdict"] or "-", r["title"][:60]))
     return 0
 
 
 def cmd_next(args) -> int:
     conn = store.connect()
     store.init_db(conn)
-    row = store.take_next(conn)
+    row = store.take_next(conn, include_skip=args.force)
     if not row:
-        _out({"remaining": 0, "note": "没有 status=new 的候选"}, args.json)
+        _out({"remaining": 0,
+              "note": "没有可领取的候选（skip 条目需 --force）"}, args.json)
         return 0
     row["remaining"] = len(store.list_candidates(conn, status="new"))
     _out(row, args.json)
@@ -176,6 +197,10 @@ def cmd_workspace(args) -> int:
     cand = _candidate(conn, args.candidate)
     if not cand["url"]:
         raise SystemExit("候选 %s 没有 URL，无法 clone" % args.candidate)
+    if cand.get("triage_route") == "skip" and not args.force:
+        raise SystemExit(
+            "候选 %s 分诊为 skip（%s）。确认要读请加 --force。" % (
+                args.candidate, cand.get("triage_reason") or "无理由"))
     res = ws.ensure_workspace(cand["url"], store.cache_root(),
                               max_mb=args.max_mb)
     if res.get("ok"):
@@ -196,6 +221,13 @@ def cmd_record(args) -> int:
     report = Path(args.report)
     if not report.exists():
         raise SystemExit("分析报告不存在：%s（先写报告再入账）" % report)
+    cand = _candidate(conn, args.candidate)
+    if (cand.get("triage_route") == "skip"
+            and args.verdict in ("adopt", "adapt")):
+        # 允许深读后推翻分诊，但必须留痕：分诊规则下次要能据此修正。
+        store.audit(conn, "triage_override", {
+            "candidate_id": args.candidate, "verdict": args.verdict,
+            "reason": args.reason})
     store.record_analysis(
         conn, args.candidate, report_path=store.rel(report),
         verdict=args.verdict,
@@ -290,18 +322,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="只解析不入库")
     p.set_defaults(func=cmd_intake)
 
+    p = new("triage", "确定性分诊：deep / brief / skip")
+    p.add_argument("--candidate", type=int, help="只分诊这一条")
+    p.add_argument("--force", action="store_true", help="重新打分（含已分诊）")
+    p.set_defaults(func=cmd_triage)
+
     p = new("list", "看候选")
     p.add_argument("--status", choices=["new", "screened", "workspace",
                                         "analyzed", "applied", "skipped"])
     p.add_argument("--brief", help="按日期过滤，YYYY-MM-DD")
+    p.add_argument("--route", choices=["deep", "brief", "skip"])
     p.set_defaults(func=cmd_list)
 
-    p = new("next", "原子领取一条待分析")
+    p = new("next", "原子领取一条待分析（默认跳过 skip）")
+    p.add_argument("--force", action="store_true", help="允许领取 skip 条目复核")
     p.set_defaults(func=cmd_next)
 
     p = new("workspace", "clone/刷新候选仓库")
     p.add_argument("--candidate", type=int, required=True)
     p.add_argument("--max-mb", type=int, default=ws.MAX_MB_DEFAULT)
+    p.add_argument("--force", action="store_true", help="允许 clone skip 条目")
     p.set_defaults(func=cmd_workspace)
 
     p = new("record", "登记一条分析结论")

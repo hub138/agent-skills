@@ -64,10 +64,17 @@ def connect(db: Path | None = None) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-    # 只加列的轻量迁移：早期台账没有 slot 列。
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(briefs)")}
-    if "slot" not in cols:
+    # 只加列的轻量迁移：早期台账没有 slot / triage_* 列。
+    brief_cols = {r[1] for r in conn.execute("PRAGMA table_info(briefs)")}
+    if "slot" not in brief_cols:
         conn.execute("ALTER TABLE briefs ADD COLUMN slot TEXT NOT NULL DEFAULT ''")
+    cand_cols = {r[1] for r in conn.execute("PRAGMA table_info(candidates)")}
+    for col, decl in (("triage_score", "INTEGER"),
+                      ("triage_route", "TEXT"),
+                      ("triage_reason", "TEXT NOT NULL DEFAULT ''"),
+                      ("triage_at", "TEXT")):
+        if col not in cand_cols:
+            conn.execute("ALTER TABLE candidates ADD COLUMN %s %s" % (col, decl))
     conn.commit()
 
 
@@ -285,10 +292,92 @@ def ingest_brief(conn: sqlite3.Connection, text: str, *, brief_date: str,
             "item_count": len(items), "title": title}
 
 
+# ---------------------------------------------------------------- 分诊
+
+# 分诊是必要功能，不是可选步骤：雷达每期几十条，真正值得深读的通常只有个位数。
+# 规则必须确定性、可解释、可测试——否则「AI 觉得这条不重要」无法复核。
+MECHANISM_WEIGHTS = {
+    "编排": 2, "调度": 2, "任务队列": 3, "工作流": 1, "sop": 2, "节点": 1,
+    "租约": 3, "lease": 3, "抢占": 2, "并发": 1, "单写": 3, "写入者": 2,
+    "续跑": 3, "恢复": 2, "检查点": 3, "checkpoint": 3, "幂等": 3,
+    "idempot": 3, "断点": 3, "重试": 2, "状态机": 2, "回滚": 2,
+    "上下文": 2, "信封": 3, "artifact": 2, "投影": 2, "坐标": 1,
+    "审计": 3, "audit": 3, "可观测": 2, "trace": 2, "监督": 2,
+    "门禁": 3, "gate": 2, "审批": 2, "人工": 1, "human": 1,
+    "沙箱": 2, "sandbox": 2, "隔离": 1, "健康检查": 2, "生命周期": 2,
+    "心跳": 2, "清理": 2, "控制平面": 2, "control plane": 2,
+    "缓存": 1, "限流": 2, "退避": 2,
+}
+
+EXCLUDE_WEIGHTS = {
+    "模型发布": 4, "正式发布": 2, "开源模型": 2, "融资": 4, "估值": 4,
+    "人事": 3, "离职": 3, "招聘": 3, "榜单": 4, "排名": 2, "价格": 2,
+    "通稿": 3, "访谈": 2, "观点": 2, "科普": 2, "课程": 2,
+    "手机": 3, "芯片": 2, "显卡": 2, "游戏": 2, "发布会": 3,
+}
+
+
+def _hit(word: str, text: str) -> bool:
+    """中文直接子串匹配；英文按词边界，避免 delegate 命中 gate。"""
+    if re.fullmatch(r"[a-z0-9_ -]+", word):
+        return re.search(r"\b%s\b" % re.escape(word), text) is not None
+    return word in text
+
+
+def triage_text(title: str, core: str = "", innovation: str = "",
+                kind: str = "other") -> dict:
+    text = ("%s %s %s" % (title, core, innovation)).lower()
+    mech = sorted(((w, wt) for w, wt in MECHANISM_WEIGHTS.items()
+                   if _hit(w, text)), key=lambda x: (-x[1], x[0]))
+    noise = sorted(((w, wt) for w, wt in EXCLUDE_WEIGHTS.items()
+                    if _hit(w, text)), key=lambda x: (-x[1], x[0]))
+    score = (sum(wt for _, wt in mech) + (2 if kind == "repo" else 0)
+             - sum(wt for _, wt in noise))
+    score = max(0, score)
+    route = "deep" if score >= 5 else "brief" if score >= 3 else "skip"
+    bits = ["机制词：" + "、".join(w for w, _ in mech[:6])] if mech else ["无机制词"]
+    if kind == "repo":
+        bits.append("仓库 +2")
+    if noise:
+        bits.append("噪声词：" + "、".join(w for w, _ in noise[:4]))
+    return {"score": score, "route": route,
+            "mechanisms": [w for w, _ in mech], "noise": [w for w, _ in noise],
+            "reason": "；".join(bits)}
+
+
+def triage_candidate(conn: sqlite3.Connection, candidate_id: int) -> dict:
+    row = conn.execute("SELECT * FROM candidates WHERE id=?",
+                       (candidate_id,)).fetchone()
+    if not row:
+        raise ValueError("候选 %s 不存在" % candidate_id)
+    info = triage_text(row["title"], row["core"], row["innovation"], row["kind"])
+    ts = now_str()
+    detail = {"candidate_id": candidate_id, "score": info["score"],
+              "route": info["route"]}
+    with tx(conn):
+        conn.execute(
+            "UPDATE candidates SET triage_score=?, triage_route=?, "
+            "triage_reason=?, triage_at=? WHERE id=?",
+            (info["score"], info["route"], info["reason"], ts, candidate_id))
+        _event_row(conn, "triage", detail, ts)
+    _audit_file(ts, "triage", detail)
+    info["candidate_id"] = candidate_id
+    return info
+
+
+def triage_pending(conn: sqlite3.Connection, force: bool = False) -> list[dict]:
+    sql = "SELECT id FROM candidates"
+    if not force:
+        sql += " WHERE triage_score IS NULL"
+    sql += " ORDER BY id"
+    return [triage_candidate(conn, r["id"]) for r in conn.execute(sql)]
+
+
 # ---------------------------------------------------------------- 查询与写入
 
 def list_candidates(conn: sqlite3.Connection, status: str | None = None,
-                    brief: str | None = None) -> list[dict]:
+                    brief: str | None = None,
+                    route: str | None = None) -> list[dict]:
     sql = ("SELECT c.*, b.brief_date FROM candidates c "
            "JOIN briefs b ON b.id=c.brief_id")
     where, args = [], []
@@ -298,20 +387,28 @@ def list_candidates(conn: sqlite3.Connection, status: str | None = None,
     if brief:
         where.append("b.brief_date=?")
         args.append(brief)
+    if route:
+        where.append("c.triage_route=?")
+        args.append(route)
     if where:
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY b.brief_date DESC, c.seq"
     return [dict(r) for r in conn.execute(sql, args)]
 
 
-def take_next(conn: sqlite3.Connection) -> dict | None:
-    """原子领取一条待分析候选。两个 agent 同时跑也只会有一条被拿走。"""
+def take_next(conn: sqlite3.Connection, include_skip: bool = False) -> dict | None:
+    """原子领取一条待分析候选；默认跳过 triage=skip 的条目。
+
+    include_skip=True 只在人工明确要求复核某条时用（CLI `next --force`）。
+    """
     ts = now_str()
     row = None
     detail = None
+    cond = "" if include_skip else " AND COALESCE(triage_route,'') != 'skip'"
     with tx(conn):
         row = conn.execute(
-            "SELECT * FROM candidates WHERE status='new' ORDER BY id LIMIT 1"
+            "SELECT * FROM candidates WHERE status='new'" + cond
+            + " ORDER BY id LIMIT 1"
         ).fetchone()
         if row:
             conn.execute("UPDATE candidates SET status='screened', updated_at=? "
@@ -472,16 +569,17 @@ def render_ledger(conn: sqlite3.Connection, out: Path = LEDGER_PATH) -> str:
                   (b["source"] or "未标注",
                    "（%s）" % b["source_path"] if b["source_path"] else "",
                    len(rows)), "",
-                  "| # | 条目 | 类型 | 相关 | 结论 | 理由 / 报告 |",
-                  "|---|---|---|---|---|---|"]
+                  "| # | 条目 | 类型 | 路由 | 相关 | 结论 | 理由 / 报告 |",
+                  "|---|---|---|---|---|---|---|"]
         for r in rows:
             link = "`%s`" % r["report_path"] if r["report_path"] else ""
             reason = (r["reason"] or "").replace("|", "\\|")
             if len(reason) > 80:
                 reason = reason[:77] + "..."
-            lines.append("| %d | [%s](%s) | %s | %s | %s | %s |" % (
+            lines.append("| %d | [%s](%s) | %s | %s | %s | %s | %s |" % (
                 r["seq"], r["title"].replace("|", "\\|"), r["url"] or "#",
-                r["kind"], r["relevance"] if r["relevance"] is not None else "-",
+                r["kind"], r["triage_route"] or "-",
+                r["relevance"] if r["relevance"] is not None else "-",
                 _fmt_verdict(r["verdict"]),
                 " ".join(x for x in (reason, link) if x) or "-"))
         changes = [dict(r) for r in conn.execute(

@@ -134,8 +134,9 @@ cron → deadman.py --config job.json → 逐项 probe（进程/端口/命令/�
 
 ```
 brief.md / 粘贴文本 → intake（同日多期用 slot；解析入账 + 原文落盘 + 审计同事务）
-   → candidates(new) → next（原子领取，写 claim 事件）
-   → workspace（clone/刷新，登记 commit_sha 与体积）
+   → candidates(new) → triage（机制词/噪声词确定性打分 → deep/brief/skip）
+   → next（只领 deep/brief；原子领取 + claim 事件）
+   → workspace（仅 deep 仓库；clone/刷新，登记 commit_sha 与体积）
    → AI 深读（代码/文章，产出 analyses/<日期>/*.md）
    → record（结论 + 报告 + 证据坐标；分析/状态/审计同事务）
    → applied（改动 + 理由 + 门禁；记录与状态同事务）
@@ -253,6 +254,10 @@ radar/LEDGER.md                    台账渲染（自动生成）
 ```
 
 ### 8.3 判定口径
+
+分诊（triage）先于判定：`deep` 才深读，`brief` 只写摘要，`skip` 只留一句理由、
+不写报告。路由由脚本按可解释的词表打分（机制词加权、仓库 +2、噪声词减分），
+不是模型拍脑袋；判错可 `next --force` 复核，台账会记 `triage_override`。
 
 | 结论 | 含义 | 后续动作 |
 |---|---|---|

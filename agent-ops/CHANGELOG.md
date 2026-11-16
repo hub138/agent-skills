@@ -3,6 +3,15 @@
 > 每次提交一段，倒序。格式见 `GOVERNANCE.md` 5.1：
 > 改了什么 / 为什么 / 门禁 / 回滚。不写「优化了一下」。
 
+## 2026-11-16 · 雷达分诊：先筛后读（必要功能）
+
+- 新增 `triage` 子命令与 `triage_score/route/reason/at` 四列（只加列迁移）。
+- 规则：机制词加权 + 仓库 +2 − 噪声词；≥5 `deep` / 3–4 `brief` / <3 `skip`。
+- `next` 默认跳过 `skip`；`workspace` 拒绝 clone `skip`（需 `--force`）。
+- `record` 遇到 `skip` 却被判 `adopt/adapt` 时写 `triage_override` 事件，便于回头修规则。
+- 提示词改为「默认只深读 deep；skip 不写报告」，补 3 项测试（规则/拦截/旧库迁移）。
+- 实测 11-16 两期 8 条：7 条 deep、1 条 brief（原生沙箱，证据不足），无机制条目被误杀。
+
 ## 2026-11-16 · 文档自维护：ANATOMY 结构对账 + 全文审阅
 
 ### 新增

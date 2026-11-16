@@ -149,6 +149,53 @@ def test_workspace_ensure_rejects_unknown_url(tmp_path):
     assert res["ok"] is False
 
 
+def test_triage_routes_by_signal():
+    """无关条目必须被拦在深读之外；机制条目必须进 deep。"""
+    assert store.triage_text("腾讯混元发布 Hy4 flash 模型")["route"] == "skip"
+    assert store.triage_text("某公司完成新一轮融资，估值翻倍")["route"] == "skip"
+    deep = store.triage_text(
+        "Agent 干到一半崩了：长任务续跑的工程学",
+        "检查点、确定性重放与幂等三件套")
+    assert deep["route"] == "deep"
+    brief = store.triage_text("Agent 可观测实践", "Trace 分层与评估")
+    assert brief["route"] == "brief"
+
+
+def test_take_next_skips_skip_route(conn):
+    items = [
+        {"seq": 1, "title": "某模型正式发布", "url": "https://example.com/a",
+         "kind": "article", "core": "", "innovation": ""},
+        {"seq": 2, "title": "检查点与续跑", "url": "https://example.com/b",
+         "kind": "article", "core": "检查点 幂等", "innovation": ""},
+    ]
+    store.ingest_brief(conn, "raw", brief_date="2026-11-16", items=items)
+    store.triage_pending(conn)
+    first = store.take_next(conn)
+    assert first["seq"] == 2, "默认必须跳过 skip 条目"
+    forced = store.take_next(conn, include_skip=True)
+    assert forced["seq"] == 1
+
+
+def test_triage_columns_migrated(tmp_path, monkeypatch):
+    """旧台账没有 triage_* 列，init_db 只加列、不重建。"""
+    import sqlite3
+    monkeypatch.setenv("RADAR_HOME", str(tmp_path))
+    conn = sqlite3.connect(str(tmp_path / "old.db"))
+    conn.execute("CREATE TABLE briefs (id INTEGER PRIMARY KEY, brief_date TEXT,"
+                 " title TEXT, source TEXT, source_path TEXT, raw_sha256 TEXT,"
+                 " item_count INTEGER, ingested_at TEXT)")
+    conn.execute("CREATE TABLE candidates (id INTEGER PRIMARY KEY, brief_id INTEGER,"
+                 " seq INTEGER, title TEXT, url TEXT, host TEXT, kind TEXT,"
+                 " core TEXT, innovation TEXT, audience TEXT, status TEXT,"
+                 " relevance INTEGER, verdict TEXT, reason TEXT,"
+                 " created_at TEXT, updated_at TEXT)")
+    conn.commit()
+    store.init_db(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(candidates)")}
+    assert {"triage_score", "triage_route", "triage_reason", "triage_at"} <= cols
+    assert "slot" in {r[1] for r in conn.execute("PRAGMA table_info(briefs)")}
+
+
 def test_same_day_two_slots(conn):
     store.ingest_brief(conn, BRIEF_TECH, brief_date="2026-11-16", slot="11:00")
     store.ingest_brief(conn, BRIEF_PASTE, brief_date="2026-11-16", slot="15:00")
