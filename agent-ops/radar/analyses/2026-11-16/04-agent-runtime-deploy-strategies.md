@@ -49,3 +49,17 @@
 本 skill 要把单机上的多个 CLI 子 agent 管住。把它的部署抽象搬进来，只会增加
 没有第二个实现的抽象层。可借鉴的只有「策略自带表定义」这一条形态纪律，
 在将来真的支持第二种存储后端（Postgres）时再用。
+
+## 6. 第二轮深读补充
+
+- `Deployer` ABC（`deployments/base/deployer.py`）：`deploy` / `stop` / `get_status`
+  三个抽象方法，策略子类只实现本模式细节，管理器不写 if/else。
+- `DeploymentStatus`（`models/enums.py:16`）：pending / running / stopped / failed /
+  **running_not_ready**；最后一个对应 K8s「Pod Running 但容器未全部 Ready」
+  （`k8s/deployer.py:760-775`）。
+- `PriorityDualAsyncQueues`（`session/dual_queue.py`）：系统消息队列优先于用户消息，
+  先 drain 系统队列，防控制面消息被业务消息饿死。
+- K8s 依赖导入失败只禁用该策略并 warning（`manager.py:104`），不整体启动失败。
+
+未采纳理由不变。`running_not_ready` 若将来要补，应先有「会话可探测」的健康检查，
+而不是只加一个枚举值。

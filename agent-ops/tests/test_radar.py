@@ -97,6 +97,9 @@ def test_take_next_is_exclusive(conn):
     assert a and b and a["id"] != b["id"]
     assert store.take_next(conn) is None
     assert store.stats(conn)["new"] == 0
+    claims = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE kind='claim'").fetchone()[0]
+    assert claims == 2
 
 
 def test_record_analysis_and_ledger(conn):

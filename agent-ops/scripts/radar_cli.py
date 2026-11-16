@@ -181,7 +181,10 @@ def cmd_workspace(args) -> int:
     if res.get("ok"):
         store.record_workspace(conn, args.candidate, path=res["path"],
                                commit_sha=res["commit_sha"], nbytes=res["bytes"])
-        store.set_status(conn, args.candidate, "workspace")
+        # 只为「还没分析」的候选推进状态；已 analyzed/applied 的重新 clone 不能把
+        # 结论退回去（补读代码时很常见）。
+        if cand["status"] in ("new", "screened"):
+            store.set_status(conn, args.candidate, "workspace")
         res["path_rel"] = store.rel(Path(res["path"]))
     _out(res, args.json)
     return 0 if res.get("ok") else 1

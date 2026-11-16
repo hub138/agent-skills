@@ -64,3 +64,25 @@
 2. `result.json` 增加 `steps: [{name, status, artifact}]`，校验器兼容旧格式；
 3. `taskctl resume --from-step <name>`：只跳过已确认步骤，不重跑外部副作用；
 4. 失败测试：suspended → resume → 断言已确认步骤没有二次执行。
+
+## 8. 第二轮深读补充（代码级）
+
+- 节点类型实为 `agent / script / command / approval / sop`（`internal/domain/workflow.go:63`）；
+  README 的「Human-gate」在代码里是 `approval`，等待态 `waiting_approval`
+  （`internal/engine/node_execute.go:372,396,968`）。
+- `VerificationGate`（`workflow.go:9`）：`mode=command|manual`、
+  `stage=after_execution|before_publish`、`onFailure=loop|reject|fail|human`、
+  `executionScope=run|repositories`。这是「验证失败后怎么办」的显式枚举。
+- `DefinitionRevision`（`workflow.go:103`）：workflow/agent 的不可变快照，可 diff/restore。
+- `SOPCheckpoint` 冻结在 run JSON 而不是模板（`workflow.go:119`）；
+  `GroupSOPHandoff` 把 summary/transcript 归档成 artifact 供恢复节点使用（`workflow.go:127`）。
+- 工作区检查点（`internal/runtime/workspace_checkpoint.go`）：tar 快照，
+  排除 `.agentflow/node_modules/.cache/__pycache__/.zvec-grep`；
+  单快照 12MB、归档 512MB、展开 2GB 上限。
+- `ClaimedFiles` + `PlanItemID`（`workflow.go:53-54`）：节点声明写入范围，配合单一写入者。
+
+未覆盖：Docker 沙箱实现、前端、计费。以上已足够支撑结论。
+
+**结论维持 adapt（本期不落地）**。新增一条未落地候选：「验证门禁 onFailure 枚举」
+对应本 skill 的失败分类（可重试/不可重试/交人），但它依赖先统一 `result.json` 的失败语义
+（见 #2 的第二轮补充）。

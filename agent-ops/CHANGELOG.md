@@ -44,6 +44,19 @@ LoopForge / agent-runtime / SuperAgent / GCA 四条全判「略过」，而这�
 2. **openclaw-enterprise → 雷达台账**：`radar_store.tx()` 把候选状态、分析/变更记录、
    审计事件放进同一事务；审计写不进去就整体回滚。
 
+### 补充：第二轮深读（同日）
+
+- 重新 clone 三个仓库并做代码级深读：LoopForge 的节点类型/验证门禁/工作区检查点；
+  openclaw 的 claim+audit 同语句/终态 evidence CTE/恢复分类；agent-runtime 的
+  Deployer ABC/`running_not_ready`/双队列。
+- **结论修正**：SuperAgent 由 `skip` 改为 `adapt`。第一轮只确认「有信封」，
+  漏了失败分类（TIMEOUT/UNDELIVERABLE/WAITING_HUMAN）与错误三元组
+  （userCause/userAction/system）；`taskctl.validate_result` 目前只有 done/blocked/failed。
+- **新增落地**：`take_next` 领取时同事务写 `claim` 事件
+  （对应 openclaw `postgres-work-queue.ts:62`）。
+- 8 份分析报告均追加「第二轮深读补充」，并标注未覆盖范围。
+- 门禁：pytest 58 passed；doccheck OK；pyflakes `undefined name '` = 0。
+
 ### 修复：既有缺陷
 
 - `scripts/supervise_agents.py`：`idle` 在 `_session_stats()` 之前被引用，

@@ -54,3 +54,31 @@
 
 `skip`。这篇文章对本 skill 的最大价值不是新机制，而是**验证了现有设计方向**：
 结果信封 + 租约 + 投影视图是对的。把它列为 skip 并写清理由，避免下次重复评估。
+
+## 6. 第二轮深读补充（结论修正：skip → adapt）
+
+原文 5.2 给出信封完整字段：
+
+- `state`: SUCCEEDED / FAILED / TIMEOUT / UNDELIVERABLE / WAITING_HUMAN
+- `error`: 三元组 `userCause / userAction / system`
+- `ArtifactRef`: 只放坐标（id/name/url/path/type/actions），不放内容
+- `clarify`（一次只问一个）、`steer`、`asOf`
+
+对照 `taskctl.validate_result()`（`scripts/taskctl.py:147`）：
+
+| 维度 | SuperAgent | 本 skill |
+|---|---|---|
+| 结果唯一表示 | SaResultEnvelope | result.json + 硬校验 |
+| 失败分类 | 超时/送不到/等人工/失败 | 只有 done/blocked/failed |
+| 错误可读性 | userCause/userAction/system | 无结构化错误 |
+| 结果新鲜度 | `asOf` | 无 |
+| 大对象 | ArtifactRef 坐标 | 细节留盘，摘要进 result |
+
+第一轮判「已具备且更严格」只看了「有没有信封」，没看「信封里的失败语义」。
+失败语义直接影响 manager 决策：超时应重试、送不到应换执行体、等人工应挂起而不是重跑。
+
+因此修正为 **adapt**：给 `result.json` 增加可选 `error{code,userCause,userAction,system}`
+与 `state` 扩展（timeout/undeliverable/waiting_human），校验器兼容旧格式（缺字段按 failed 处理）。
+
+本期不落地：`taskctl` 是核心调度，改 result 契约需要单独的失败路径测试与 manager 兼容；
+方案已给，下一期执行。

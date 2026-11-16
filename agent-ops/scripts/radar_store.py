@@ -306,14 +306,22 @@ def list_candidates(conn: sqlite3.Connection, status: str | None = None,
 
 def take_next(conn: sqlite3.Connection) -> dict | None:
     """原子领取一条待分析候选。两个 agent 同时跑也只会有一条被拿走。"""
+    ts = now_str()
     row = None
+    detail = None
     with tx(conn):
         row = conn.execute(
             "SELECT * FROM candidates WHERE status='new' ORDER BY id LIMIT 1"
         ).fetchone()
         if row:
             conn.execute("UPDATE candidates SET status='screened', updated_at=? "
-                         "WHERE id=? AND status='new'", (now_str(), row["id"]))
+                         "WHERE id=? AND status='new'", (ts, row["id"]))
+            # 领取与领取证据同事务（OpenClaw postgres-work-queue.ts:62 的 claim+audit）：
+            # 没有这条事件，事后无法回答「这条是谁在什么时候领走的」。
+            detail = {"candidate_id": row["id"]}
+            _event_row(conn, "claim", detail, ts)
+    if detail:
+        _audit_file(ts, "claim", detail)
     return dict(row) if row else None
 
 

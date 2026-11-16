@@ -56,3 +56,13 @@ git revert a7e9c50
 ```
 
 回滚后台账恢复为多次提交，已有数据不受影响（schema 未变）。
+
+## 第二轮追加（同日晚）
+
+深读后补了一条更贴近上游原意的落地：`radar_store.take_next()` 在领取时
+**同事务写入 `claim` 事件**，commit 后追加 `audit.jsonl`。
+此前领取只改 `status='screened'`，没有任何事件，事后无法回答
+「这条是谁、什么时候领走的」——这正是 OpenClaw 要求 claim 与 audit
+同一条 SQL 的原因（`postgres-work-queue.ts:62`）。
+
+测试 `test_take_next_is_exclusive` 增加断言：两次成功领取必须产生 2 条 `claim` 事件。

@@ -70,3 +70,22 @@ OCC（控制平面）持有期望状态、授权与资源生命周期；Driver �
 - 多租户/IAM/Driver 体系：单机不需要。
 - 不可变 Agent revision：`task_events` 已提供追加式历史，再造一层 revision 表是重复。
 - 敏感值脱敏包：本 skill 的台账不存凭证；`desensitize.py` 负责公开版脱敏，职责已分开。
+
+## 7. 第二轮深读补充（更细的提交语义）
+
+- **claim 与审计同一条 SQL**：`ClaimRequest.recordAudit` 的注释是
+  「Require an audit append in the same database statement as the claim」
+  （`packages/occ/src/state/postgres-work-queue.ts:62`）。
+- **终态与证据同一条 SQL**：`FAIL_EXHAUSTED_NAMESPACES_SQL` 与 `insertEvidenceCteSql`
+  在同一个 CTE 里更新状态并写 evidence（`postgres-work-queue.ts:644` 附近）。
+- **恢复有分类统计**：`RecoverySummary` 区分 recovered / requeued / failedPermanent /
+  exhaustedQueued / failed，失败永久与可重试不同桶。
+- **幂等与身份校验**：`idempotency_key` + claim token（UUID v4），非法直接
+  `ScopeViolationError`。
+- **审计可开关**（`controlPlaneAuditEnabled`）：说明审计有成本，不是无条件全量。
+
+本 skill 已落地「变更+状态+审计同事务」，并在此基础上补了
+`take_next` 领取时写 `claim` 事件——此前领取只改状态、没有任何事件，
+事后无法回答「这条是谁在什么时候领走的」。这正是 claim+audit 同语句要解决的问题。
+
+未抄：多租户/IAM/Driver/revision 表（理由见第 6 节）。
