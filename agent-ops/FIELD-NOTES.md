@@ -1026,3 +1026,39 @@ https://raw.githubusercontent.com/<org>/<repo>/<tag>/<path>
 - 判断「某缺陷在某版本存不存在」，**去读那个版本的源码**，不要绕道版本号或现象。
 - 自动核对脚本只用来**初筛和排序**，结论必须人工看上下文确认（尤其是条件分支里的代码）。
 - 结论写成三档并写依据：`already_fixed` / `affected` / `not_applicable`，每档都要能贴出源码原文。
+
+## [mtr-fragile] MTR 时序敏感测试的定位法 + 本地为 CI 代码搭编译环境的四个坑（2026-11-17）
+
+**场景**：MR 的 rpl.rpl_speed_limit 在 CI 稳定失败（重跑多次都挂），其他人分支能过。
+该测试用**精确字节数断言**限速状态计数器（bytes_send/bytes_received 按 binlog event
+逐个累加），对执行时序极脆弱。
+
+**定位路径（静态分析穷尽后靠本地复现）**：
+1. 三方哈希对比（我的分支/能过的分支/master）在测试/基线/插件上全一致 → 排除代码差异
+2. 27 个文件全量 diff 无复制链路改动 → 排除直接回归
+3. 环境指标对比（pid 等待超时次数 10/10、同批测试耗时 ±3%）→ 排除负载差异
+4. **本地 MTR 复现**：单线程数值与基线完全一致；12 并发下发现调度相位差异——
+   根因：移植 commit 修改了 main suite 测试内容（ps.test +14 行）→ MTR 调度时长
+   确定性偏移 → 该测试执行窗口跨过心跳统计窗口 → 数值恒定偏移。
+   结论：**时序敏感断言 + 测试内容变更 = 必挂**，与业务代码无关。
+5. 修法：Show Status 数值列用 `--replace_column 2 N` 整列屏蔽
+   （先试了 --replace_regex，TDSQL 定制版 MTR 里未生效，换原生 replace_column）。
+
+**为 CI 代码搭本地编译环境的四个坑**：
+1. `git switch` 不更新文件 mtime → make 认为源码没变 → 增量编译用了旧产物
+   （本地"复现"先撞上这个假象：reject 缺 4 行是旧 .so，不是 CI 的问题）。
+   解法：切分支后对关键目录 `touch` 强制重编。
+2. 公共头文件加一行 include（如 sql_class.h）→ 整个 sql 层全量重编（半小时起）。
+   build fix 尽量加在使用点，避免动公共头。
+3. gcc8/C++17 下基线代码本身编不过（std::atomic<time_point> 无默认构造、
+   std::filesystem 需要 -lstdc++fs、国密 SDK 头缺失）——CI 是另一套编译器环境。
+   本地验证用**临时 patch**（标注 LOCAL-BUILD-ONLY 不提交）+ stub 头（放
+   .gitignore 覆盖的目录，绝不进 commit）；stub 的函数签名必须严格按头文件原型。
+4. 批量 sed 改 CMake link.txt 加链接库时，**ar 归档命令的 link.txt 也被加了**
+   → `ar: two different operation options specified` → 第三方库全挂。
+   sed 后要按命令类型区分（ar 开头的删掉）。
+
+**同批发现的基础设施问题**：TDSQL CI 的 MTR 重试机制有 bug——
+`mysql-test-run.pl:3238` 重试时 `$resfile_name` 未初始化 → `Invalid file name '.result'`
+→ 一次偶发失败被虚报成"N 次全失败"，误导所有人以为确定性失败。
+值得报给平台组。
