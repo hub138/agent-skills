@@ -361,6 +361,7 @@ python3 $ACT watch --quiet   # 挂 cron，批量续接挂掉的任务
 ```
 python3 -m pytest tests/ -q            # 库函数 + 业务入口冒烟（test_cli_smoke.py）
 python3 scripts/doccheck.py            # 文档数字 / 导航表 / 单一权威源
+python3 scripts/anatomy_check.py       # ANATOMY 与代码树结构对账（活文档闸门）
 python3 scripts/agentctl.py status     # 真业务路径，必须打印任务表而不是 traceback
 python3 scripts/agentctl.py status --json | python3 -m json.tool >/dev/null
 ```

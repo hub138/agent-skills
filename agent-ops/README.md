@@ -85,6 +85,7 @@ python3 $T plan --goal "找出上周发版后偶发 502 的原因，给出可复
 | `deadman.py --config <json>` | 死士巡检（异常才通知，正常只写日志） |
 | `selfcheck.py` | 体检本 skill 全部能力是否在岗 |
 | `doccheck.py` | 文档数字与代码事实对账（测试数 / 条数 / 文件数 / 命令引用） |
+| `anatomy_check.py` | ANATOMY 与代码树结构对账（路径存在 / 脚本覆盖 / 影响矩阵 / 门禁） |
 
 ## 文档地图（按需深入）
 

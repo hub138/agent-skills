@@ -3,6 +3,32 @@
 > 每次提交一段，倒序。格式见 `GOVERNANCE.md` 5.1：
 > 改了什么 / 为什么 / 门禁 / 回滚。不写「优化了一下」。
 
+## 2026-11-16 · 文档自维护：ANATOMY 结构对账 + 全文审阅
+
+### 新增
+- `scripts/anatomy_check.py`：路径存在性、脚本/模板/提示词覆盖、影响矩阵、门禁完整性；
+  退出码 1 = 需要修订。已并入 `doccheck.py`，同时保留独立入口拿结构清单。
+- `radar/prompts/anatomy-review.md`：逐节提取「声称」→ 五类判定（成立/过时/不完整/矛盾/多余）
+  → 六维必查 → 重写章节；明确禁止文末追加更新日志。
+- `tests/test_anatomy.py`：6 项，验证对账器能拦住缺章节、幽灵路径、未覆盖脚本、
+  门禁未接、缺任务书。
+
+### 重写（按审阅结论，不是追加）
+- 目录树：删除不存在的 `orchestrator/`；列出全部雷达提示词；修正 `_done-contract.md` 的生效方式。
+- 脚本表：补 `anatomy_check.py`；`radar_store` 补事务与 claim 事件；`radar_cli` 补同日多期。
+- 雷达数据流：补 slot、claim、事务边界。
+- 影响矩阵：补 `radar_store.py`/`radar_cli.py`；契约行改为「render_prompt 自动附加」。
+- 外部引用：给出 rsync 同步命令并改用 md5 校验；区分部署前缀与 CLI 契约。
+- 判定口径：补「第二轮深读可修正第一轮结论」。
+- 扩展清单与边界：补对账/审阅两步；明确 ANATOMY 不自动生成。
+
+### 门禁
+pytest 64 passed；doccheck OK（含 anatomy_check）；agentctl status/json OK；
+pyflakes `undefined name '` = 0。
+
+### 回滚
+`git revert <本次提交>`。删掉 anatomy_check 调用即可回到「只靠自觉」的状态（不建议）。
+
 ## 2026-11-16 · 雷达子功能 + 治理层 + 两处借鉴落地
 
 ### 新增：技术雷达（radar）

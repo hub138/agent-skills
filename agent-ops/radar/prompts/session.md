@@ -154,6 +154,8 @@ git status --short   # 确认没有 radar/state/、*.log、__pycache__
 - [ ] 所有代码改动通过 `GOVERNANCE.md` 第 4 节门禁；
 - [ ] `radar/LEDGER.md` 已重新渲染，`radar_cli.py status --json` 可解析；
 - [ ] 缓存已按策略清理，报告里给出释放前后数字；
+- [ ] `anatomy_check.py` 输出 OK；按 `radar/prompts/anatomy-review.md` 通读 ANATOMY，
+      过时/矛盾章节已**重写**（不是在文末追加一段）；
 - [ ] `git status` 干净（除预期的源码/文档改动）。
 
 ## 7. 一期结束后的沉淀

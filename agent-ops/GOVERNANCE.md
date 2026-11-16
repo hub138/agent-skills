@@ -25,6 +25,17 @@
 
 **判断口诀**：同一事实出现两处，先问「哪一处被代码或门禁读取」。被读取的那处是权威，另一处必须改成指针或由脚本生成。
 
+### 1.1 ANATOMY 是活文档，不是更新日志
+
+每次 P1 及以上变更后必须做两件事：
+
+1. `python3 scripts/anatomy_check.py`：机器检查路径/脚本覆盖/影响矩阵/门禁是否漂移；
+2. 按 `radar/prompts/anatomy-review.md` **通读 ANATOMY 全文**，逐节判断
+   「成立 / 过时 / 不完整 / 矛盾 / 多余」，把过时与矛盾**重写**掉。
+
+不允许在文末追加「2026-xx-xx 更新：新增了 xxx」。同一事实出现两处，迟早在某一处骗人；
+半年后没人敢删段落，文档就会退化成不敢信的流水账。
+
 ---
 
 ## 2. 变更分级（先定级，再决定要跑多少门禁）
@@ -33,7 +44,7 @@
 |---|---|---|
 | **P0 文案** | 错别字、补一句解释、改示例 | `doccheck.py` |
 | **P1 行为** | 改一个脚本分支、加一个参数、修一个 bug | 失败测试 → 修复 → `pytest` + `doccheck` + 真业务路径冒烟 |
-| **P2 机制** | 新子命令、新模块、DB 加列、新模板 | P1 + 更新 `ANATOMY.md`/`SKILL.md` 导航 + `CHANGELOG.md` + 雷达留痕（若来自雷达） |
+| **P2 机制** | 新子命令、新模块、DB 加列、新模板 | P1 + 按 `radar/prompts/anatomy-review.md` 通读并**重写**受影响的 ANATOMY 章节 + `SKILL.md` 导航 + `CHANGELOG.md` + 雷达留痕（若来自雷达） |
 | **P3 接口** | 改 SKILL.md 触发词、CLI 破坏性变更、装法变更 | P2 + 兼容层（旧调用仍可用）+ 4 个安装副本同步 + 公开版重新生成 |
 
 **判定「是不是 P3」的依据**：外部（cron、其他 skill、你的自动化）是否按名字调用了你改的东西。查法见 `ANATOMY.md` 第 7 节。
@@ -59,10 +70,13 @@
 cd <skill 根>
 python3 -m pytest tests/ -q                     # 全绿，且新增行为有新增用例
 python3 scripts/doccheck.py                      # 输出 OK：文档数字与代码事实一致
+python3 scripts/anatomy_check.py                 # 输出 OK：ANATOMY 与代码树结构一致
 python3 scripts/agentctl.py status               # 真业务路径：打印任务表，不是 traceback
 python3 scripts/agentctl.py status --json | python3 -m json.tool >/dev/null  # JSON 契约
 python3 -m pyflakes scripts/*.py | grep -c "undefined name '"   # 必须为 0
 ```
+
+> `anatomy_check.py` 已并入 `doccheck.py`，但保留独立入口：报错时直接跑它拿结构清单。
 
 > 用 `undefined name '`（带单引号）而不是 `undefined name`：后者会误命中
 > `supervisor.py` 的 `from manager import *`（pyflakes 报 "unable to detect undefined names"），

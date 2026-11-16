@@ -45,6 +45,7 @@
 ```bash
 python3 -m pytest tests/ -q
 python3 scripts/doccheck.py
+python3 scripts/anatomy_check.py
 python3 scripts/agentctl.py status
 python3 scripts/agentctl.py status --json | python3 -m json.tool >/dev/null
 python3 -m pyflakes scripts/*.py | grep -c "undefined name '"   # 期望 0

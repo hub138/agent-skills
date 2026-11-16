@@ -78,6 +78,14 @@ def check() -> list[str]:
         if re.search(r'["\']/usr/local/bin/codebuddy["\']', s) and "resolve_bin" not in s:
             issues.append(f"scripts/{f} 又写死了 codebuddy 路径，应走 resolve_bin")
 
+    # 7) ANATOMY 结构对账：文档是活体，不允许只追加不校
+    #    独立脚本便于单独拿到结构清单；这里合并进统一门禁，少跑一条命令。
+    try:
+        import anatomy_check
+        issues.extend(anatomy_check.check(ROOT))
+    except Exception as exc:  # noqa: BLE001 - 门禁本身不能因导入失败而静默通过
+        issues.append(f"anatomy_check 执行失败：{exc}")
+
     return issues
 
 
