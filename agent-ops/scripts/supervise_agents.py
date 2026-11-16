@@ -123,9 +123,11 @@ def collect():
             continue
         # 已正常退出（exit 非空且为 0）且会话超过 5 分钟无新事件 → 视为完成，
         # 不再触发「无新事件」告警（此前 probe 因此反复触发、模型输出 null）。
+        # idle 必须先由 _session_stats 算出来再用（此前在赋值前引用，
+        # 正常退出且空闲的分支会抛 NameError，导致整轮监督中断）。
+        n_ev, idle, last_tool = _session_stats(task, d)
         if not alive and exitc.strip() and 'signal-or-exit:0' in exitc and idle > 300:
             continue
-        n_ev, idle, last_tool = _session_stats(task, d)
         prog = d / 'progress.md'
         prog_lines = 0
         if prog.exists():

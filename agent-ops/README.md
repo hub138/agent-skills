@@ -96,6 +96,9 @@ python3 $T plan --goal "找出上周发版后偶发 502 的原因，给出可复
 | `harness-lessons.md` | 设计对比：9 个开源 harness 横向研究，哪些抄了哪些没抄为什么 |
 | `FIELD-NOTES.md` | 实战坑全量记录（每条：现象→根因→修法→验证），条数以 `doccheck.py` 对账为准，改代码前先查 |
 | `tests/` | 回归测试，`python3 -m pytest tests/ -q` 一键验证（项数以 `doccheck.py` 对账为准） |
+| `radar/README.md` | 技术雷达子功能：简报入账、仓库深读、借鉴落地、磁盘清理 |
+| `GOVERNANCE.md` | 开发规范：改哪里、跑什么门禁、怎么留痕 |
+| `ANATOMY.md` | 结构解剖：目录职责、数据流、变更影响矩阵 |
 
 ## 边界（诚实版）
 

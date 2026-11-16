@@ -372,3 +372,16 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 或直接用 `tests/test_cli_smoke.py::test_agentctl_has_all_core_functions` 兜底。
 **优先用精确字符串替换，不要用 `[\s\S]*?` 跨函数匹配。**
 
+## 技术雷达（radar）：把外部情报变成可回滚的借鉴
+
+- 入口：`python3 scripts/radar_cli.py --help`。完整说明 `radar/README.md`，
+  结构解剖 `ANATOMY.md` 第 8 节，开发规范 `GOVERNANCE.md`。
+- 一期流程：`intake`（**同一天多期用 `--slot 11:00` 区分**）→ `next` →
+  `workspace`（clone 到独立缓存）→ 按 `radar/prompts/analyze-repo.md` /
+  `analyze-article.md` 深读 → `record`（结论 + 报告 + 证据坐标）→
+  按 `apply-borrowing.md` 落地 → `applied` → `ledger` → `clean`。
+- 数据：`radar/state/radar.db`（索引，gitignore）、
+  `radar/intake|analyses|applied/`（正文，进 git）、`radar/LEDGER.md`（自动渲染，勿手改）。
+- 脚本只做确定性操作（解析/入账/clone/清理/渲染），**从不调用模型**；
+  判断与落地由 AI 按提示词执行，改动同样过本文档的门禁。
+

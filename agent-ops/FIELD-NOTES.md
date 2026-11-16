@@ -979,3 +979,50 @@ cron preflight/daily 失败、merge_tracker 崩溃、QTA 换包失败、DB 重�
 selfheal push 失败/前置检查失败、死士自身崩溃。
 同批修复底层假成功：`notify.Send` 无返回值 + 上层无条件打印"sent successfully"
 → 按 HTTP 状态码返回 bool，`send_notification_to_user_group` 返回 (成功数, 总数)。
+
+---
+
+## 31. 判断「缺陷在不在基线」，读基线版本源码 > 一切推断
+
+**现象**：`53417`（ObjectTemplate 耗尽崩溃）我判了三轮都不对：
+第一轮「完整复现·性能」（只测了内存没测崩）→ 第二轮「归因错误」→ 第三轮「补测 crash」。
+最后读 `v37.10.3` 的 `frame_converter.cc` 才发现：
+
+```cpp
+// 基线 37.10.3 的真实实现
+if (rfh_templ.IsEmpty()) {                        // 只在首次创建
+  v8::Local<v8::ObjectTemplate> local = v8::ObjectTemplate::New(isolate);
+  rfh_templ.Reset(isolate, inner.Escape(local));  // Persistent 缓存，跨调用复用
+}
+v8::Local<v8::Object>::New(isolate, rfh_templ)->NewInstance(...);   // 复用
+```
+
+而上游 patch 删掉的「旧代码」是**每次** `ObjectTemplate::New()`。
+→ 基线已有缓存，**「模板耗尽崩溃」在 WB 上不会发生**。前三轮全错，真机那 +349MB 是别的原因。
+
+**硬证据的取得方式**（不限流、不需要 token）：
+
+```
+https://raw.githubusercontent.com/<org>/<repo>/<tag>/<path>
+例：https://raw.githubusercontent.com/electron/electron/v37.10.3/shell/common/gin_converters/frame_converter.cc
+    https://raw.githubusercontent.com/nodejs/node/v22.16.0/src/permission/fs_permission.h
+```
+
+直接读**基线那个 tag 的文件**，看修复前/修复后的写法在不在。
+
+**证据强度排序**（从强到弱）：
+1. **基线版本源码**：patch 改的那几行在基线里是什么样 → 最硬，能直接看
+2. 基线行为实测：真机能观测到的现象（但要注意「现象≠归因」）
+3. 官方 release notes 明确写 `introduced in X`
+4. 版本号比较：**最弱**，只能当线索（修复晚于基线 ≠ 缺陷存在于基线）
+
+**踩过的三个坑**：
+- 只看 patch 前 3 个文件就判「不含该 API」→ `53869` 的第 3 个文件正是 `language_util_win.cc`，判错了；
+- 用启发式「删除行是否残留」自动判 affected → `53417` 残留的 `ObjectTemplate::New` 在 `if` 条件里，误判；
+  自动判定只能初筛，**关键条必须人工看源码上下文**；
+- 把「内存涨了」当成「某机理成立」的证据 → 相关不等于因果，归因需要独立证据链。
+
+**可复用原则**：
+- 判断「某缺陷在某版本存不存在」，**去读那个版本的源码**，不要绕道版本号或现象。
+- 自动核对脚本只用来**初筛和排序**，结论必须人工看上下文确认（尤其是条件分支里的代码）。
+- 结论写成三档并写依据：`already_fixed` / `affected` / `not_applicable`，每档都要能贴出源码原文。

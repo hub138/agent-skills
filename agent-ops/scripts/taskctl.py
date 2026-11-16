@@ -218,6 +218,13 @@ def render_prompt(kind: str, inp: dict, outdir: Path, name: str) -> str:
     missing = [m for m in ("{outdir}", "{result}", "{progress}") if m in text]
     if missing:
         raise SystemExit(f"模板 {kind} 渲染后仍有占位符 {missing}，检查模板变量")
+    # _done-contract.md 的头注释写着「派单时自动附在任务提示词末尾」，
+    # 但此前只靠模板作者自觉引用，实际没附加。这里落实承诺：
+    # 所有任务提示词统一带上收工契约（含断点快照四问），不再依赖各模板复制。
+    contract = TEMPLATES / "_done-contract.md"
+    if contract.exists() and "断点快照四问" not in text:
+        text = (text.rstrip() + "\n\n---\n\n"
+                + contract.read_text(encoding="utf-8"))
     return text
 
 
