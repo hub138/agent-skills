@@ -74,6 +74,14 @@ def test_gate_not_wired_is_reported(tmp_path):
     assert any("GOVERNANCE.md" in x for x in issues)
 
 
+def test_desensitize_absent_is_allowed(tmp_path):
+    """公开版不发布 desensitize.py；ANATOMY 提到它不算漂移。"""
+    root = _minimal_repo(tmp_path)
+    with (root / "ANATOMY.md").open("a", encoding="utf-8") as fh:
+        fh.write("\n`scripts/desensitize.py`\n")
+    assert anatomy_check.check(root) == []
+
+
 def test_missing_review_prompt_is_reported(tmp_path):
     root = _minimal_repo(tmp_path)
     (root / "radar" / "prompts" / "anatomy-review.md").unlink()

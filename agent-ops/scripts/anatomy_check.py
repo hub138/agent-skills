@@ -75,8 +75,12 @@ def check(root: Path | None = None) -> list[str]:
     for token in sorted(_referenced_paths(text)):
         target = root / token
         ok = target.is_dir() if token.endswith("/") else target.exists()
-        if not ok:
-            issues.append("ANATOMY 引用了不存在的路径：%s" % token)
+        if ok:
+            continue
+        # 公开脱敏版不发布生成器本身（它含内部词表），缺失是预期。
+        if token == "scripts/desensitize.py":
+            continue
+        issues.append("ANATOMY 引用了不存在的路径：%s" % token)
 
     # 3) 代码树里的脚本必须在 ANATOMY 出现（否则读者不知道它存在）
     scripts_dir = root / "scripts"
