@@ -29,6 +29,9 @@
 | 死士巡检 | 健康检查的健康检查：进程/数据库/日志/通知链路全客观事实 | 生产 cron 长期运行，误报实战修复 |
 | 主动挂起 | `suspend` 腾出额度，`resume` 从断点回来，不耗重试次数 | 挂起期间不参与调度 |
 | 限流自适应 | 区分两类 429，AIMD 降并发+指数静默，恢复后自动回升 | 假绿灯故障注入被拦截 |
+| 任务组协作 | 子 agent 互相感知（peers 投影）与通讯（send→inbox），安静模式防干扰 | 6 项组测试 + 端到端冒烟（send→inbox→消费不重放） |
+| 技术雷达 | 每期简报先分诊（deep/brief/skip）再深读，结论/证据/落地全程留痕可追溯 | 11-16 两期 8 条：2 采纳 / 4 改造 / 2 不抄，2 条已落地 |
+| 通用件桥接 | agent_foundation 经验库（只读）按坑名复用：大 prompt 截断、失败分类、证据校验、三级解析 | 15 项桥接测试；缺库优雅回退专项 |
 
 架构与 [google/ax](https://github.com/google/ax)（Google 的 agent 编排运行时）同构：
 状态进数据库、轮询调度、任务不可变、原文留盘——它是集群级，本 skill 是单人可维护的单机形态。
@@ -52,6 +55,31 @@ python3 $T history <任务名>       # 全史：做了什么、为什么、管�
 ```
 
 需要智能体 CLI（如 `codebuddy`，模型可配置）真正执行子任务；队列、监督、留痕本身零依赖。
+
+### 两个 AI 协作（互相感知、互相通讯）
+
+```bash
+# 同一次拆解自动同组：两个子 agent 并行，互相看得见状态
+python3 $T plan --group impl --goal "rzz 改进：AI-1 做最小实现并用审计 case 验证；AI-2 做调研并依据测试反馈迭代思路"
+
+# 验证方把测试结果发给调研方，对方下一轮 prompt 自动收到（消费后不重放）
+python3 $T send --to research --from impl "case 3 失败，需要查 XX 方向的替代方案"
+python3 $T group impl          # 组全景：成员/状态/idle/摘要
+```
+
+感知是**安静模式**：队友都在正常推进时只注入一行；只有状态变化或给你的消息才出现，
+并固定提醒「感知不是你的任务」。管理者的快照带组信息，组内互等超时会升级给你。
+
+### 知识雷达（外部情报 → 可回滚的借鉴）
+
+```bash
+python3 scripts/radar_cli.py intake --file <简报.md> --slot 11:00   # 同日多期用 slot 区分
+python3 scripts/radar_cli.py triage                                # 分诊：deep/brief/skip，skip 不写报告
+python3 scripts/radar_cli.py next                                  # 领取一条开始深读（AI 按 radar/prompts/ 走）
+```
+
+每条结论带证据坐标（`radar/analyses/`），落地带理由与回滚（`radar/applied/`），
+台账渲染在 `radar/LEDGER.md`——做了什么、为什么、没抄什么，全部可追溯。
 
 ### 你只给一个目标，就够了
 
@@ -86,12 +114,15 @@ python3 $T plan --goal "找出上周发版后偶发 502 的原因，给出可复
 | `selfcheck.py` | 体检本 skill 全部能力是否在岗 |
 | `doccheck.py` | 文档数字与代码事实对账（测试数 / 条数 / 文件数 / 命令引用） |
 | `anatomy_check.py` | ANATOMY 与代码树结构对账（路径存在 / 脚本覆盖 / 影响矩阵 / 门禁） |
+| `taskctl send --to <任务> --from <来源> "消息"` | 给同组任务的 AI 发消息（下一轮注入其 prompt） |
+| `taskctl group <gid>` | 组全景：成员/状态/idle/摘要 |
+| `radar_cli.py intake / triage / next / record / ledger / clean` | 技术雷达全流程（见 `radar/README.md`） |
 
 ## 文档地图（按需深入）
 
 | 文档 | 什么时候读 |
 |---|---|
-| `SKILL.md` | 给 AI 的完整操作手册（模型安排、CLI 用法、红线、排查口诀） |
+| `SKILL.md` | 给 AI 的完整操作手册（模型安排、CLI 用法、红线、雷达/任务组/桥接、排查口诀） |
 | `orchestrator.md` | 编排细节：派发/看护模式、上下文预算、管理者与监督后端 |
 | `memory.md` | 上下文工程与记忆：三层记忆、压缩与 rollover、管理者决策留痕 |
 | `harness-lessons.md` | 设计对比：9 个开源 harness 横向研究，哪些抄了哪些没抄为什么 |
@@ -100,6 +131,7 @@ python3 $T plan --goal "找出上周发版后偶发 502 的原因，给出可复
 | `radar/README.md` | 技术雷达子功能：简报入账、仓库深读、借鉴落地、磁盘清理 |
 | `GOVERNANCE.md` | 开发规范：改哪里、跑什么门禁、怎么留痕 |
 | `ANATOMY.md` | 结构解剖：目录职责、数据流、变更影响矩阵 |
+| `CHANGELOG.md` | 变更历史：每次做了什么、为什么、怎么验证、怎么回滚 |
 
 ## 边界（诚实版）
 
@@ -113,3 +145,5 @@ python3 $T plan --goal "找出上周发版后偶发 502 的原因，给出可复
 - 并发上限是**本项目内部量**（每模型 2 路、多模型全局 10），不做全局配额推算。
 - 多机共享同一队列需要换 Postgres（存储层已隔离，SQLite 不适合多机写）。
 - 管理者读的是 progress/result 快照，不是全量日志——子任务按模板写进度是刚需（模板已内置）。
+- 任务组的「感知」默认安静模式（队友都在推进只注入一行 + 纪律行），**防干扰效果未实测**：
+  需双 AI 真跑一轮后观察子 agent 是否被队友信息带偏；观察到混乱就把 peers 降级为「仅收件箱有消息时注入」。

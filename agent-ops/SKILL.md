@@ -64,7 +64,7 @@ description: 本机 AI agent 编排与模型运维。当一个 agent 要调度�
 | `scripts/model_policy.py` | **模型红线唯一权威源**：codebuddy/knot 允许清单与硬拒绝 |
 | `templates/tasks/_done-contract.md` | 任务提示词写作规范：讲因果 / 完成判据 / 降级是合格交付 / 别无限自检 |
 | `scripts/taskctl.py` | **几十万任务级队列**（SQLite+租约+worker 监督+模板化提示词）：`add --goal` / `plan --goal` / `tick` / `daemon` / `brief` / `stats` |
-| `templates/tasks/` | 任务类型模板（generic / compare-commit / reproduce-bug / fix-bug / research），用户不用写 prompt |
+| `templates/tasks/` | 任务类型模板（generic / compare-commit / reproduce-bug / fix-bug / research / audit-case），用户不用写 prompt |
 | `watchdog.md` | **长任务看护完整手册**：任务形态判断、jobs.json 全字段、prompts 三种模式、提示词模板、时间参数、沙箱、排查 |
 | `scripts/watchdog.sh` + `templates/` | 看护脚本与 jobs.json 模板（原 watchdog（旧版），已完全并入） |
 | `memory.md` | **上下文工程与记忆**：三层记忆、主 agent 上下文预算、子 agent 输出契约、压缩/rollover、交接协议 |
@@ -380,6 +380,8 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 
 ## 技术雷达（radar）：把外部情报变成可回滚的借鉴
 
+触发词：用户说「看看这期雷达有什么可借鉴」「把这个仓库分析一下能不能抄」时走本节。
+
 - 入口：`python3 scripts/radar_cli.py --help`。完整说明 `radar/README.md`，
   结构解剖 `ANATOMY.md` 第 8 节，开发规范 `GOVERNANCE.md`。
 - 一期流程：`intake`（同日多期用 `--slot`；`--from-dir` 默认收全部简报，
@@ -394,6 +396,8 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
   判断与落地由 AI 按提示词执行，改动同样过本文档的门禁。
 
 ## 任务组：子 agent 互相感知与通讯（group）
+
+触发词：用户说「让两个 AI 协作/互相通讯/一个实现一个调研」时走本节。
 
 - 发起：`taskctl plan --goal "..."`（同次拆解自动同组）；或 `add --group <gid>` 逐个加。
 - 实现：`scripts/task_group.py`。三通道：**感知** = `groups/<gid>/peers.md`（tick 自动刷新，spawn 时注入每轮 prompt）；
