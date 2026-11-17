@@ -393,6 +393,19 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 - 脚本只做确定性操作（解析/入账/clone/清理/渲染），**从不调用模型**；
   判断与落地由 AI 按提示词执行，改动同样过本文档的门禁。
 
+## 任务组：子 agent 互相感知与通讯（group）
+
+- 发起：`taskctl plan --goal "..."`（同次拆解自动同组）；或 `add --group <gid>` 逐个加。
+- 实现：`scripts/task_group.py`。三通道：**感知** = `groups/<gid>/peers.md`（tick 自动刷新，spawn 时注入每轮 prompt）；
+  **通讯** = `taskctl send --to <任务> --from <来源> "消息"`（写对方 `inbox.md`，
+  下一轮注入其 prompt，偏移量防重放）；**留痕** = `groups/<gid>/events.jsonl`
+  （schema 对齐 agent_foundation.events.Event）。
+- 全景：`taskctl group <gid>`（成员/状态/idle/摘要）；管理者快照带 group，
+  组内互等超时由管理者模型判断（不写死脚本逻辑，与 2026-11-12 的决策一致）。
+- 单写者：inbox.md 只由 send 追加；消息幂等——同一 from+内容 sha 已发过则拒绝，
+  `--force` 才重发。
+- 场景：双 AI 协作（实现+验证 与 web 调研并行、互相反馈）。
+
 ## 通用件桥接表（agent_foundation，只读库）
 
 > `agent_foundation`（agent-skills 仓库内）是可 import 的经验沉淀库，**只读**。

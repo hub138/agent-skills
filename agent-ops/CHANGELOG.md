@@ -3,6 +3,31 @@
 > 每次提交一段，倒序。格式见 `GOVERNANCE.md` 5.1：
 > 改了什么 / 为什么 / 门禁 / 回滚。不写「优化了一下」。
 
+## 2026-11-18 · 任务组：子 agent 互相感知与通讯（group）
+
+### 新增
+- `scripts/task_group.py`：三通道——感知(`groups/<gid>/peers.md`)、
+  通讯(`taskctl send` → 对方 `inbox.md`)、留痕(`events.jsonl`，schema 对齐
+  foundation.events.Event)；消息幂等（同 from+内容 sha 已发过则拒绝，--force 才重发）。
+- `taskctl`：`tasks.group_id` 列（只加列迁移）；`add --group`；`plan` 同次拆解
+  自动同组；`send` / `group <gid>` 两个子命令；`ensure_task_dir` 注入 peers 投影
+  与收件箱新消息（偏移量防重放，消费后不重复注入）；`event` hook 在状态变化时
+  刷新 peers；manager 快照带 group（组内互等超时由管理者模型判断，不写死脚本逻辑）。
+- `tests/test_group.py`：6 项（成员登记/幂等/消费增量/状态投影/prompt 注入/全景）。
+
+### 用法（双 AI 协作，明日场景）
+`taskctl plan --goal "rzz 改进：AI-1 实现+验证，AI-2 调研"`（同组并行）→
+AI-1 每轮 `send --to research "case X 失败，需查 XX 方向"` → research 下一轮
+prompt 带消息与 peers → 调研笔记落盘 `groups/<gid>/` → 汇合由 manager 判断。
+
+### 端到端冒烟（真实 CLI）
+双任务同组 → send×2 → inbox 2 行 → 偏移量消费后 pending 清空 → 组事件 4 条
+→ peers 投影含成员 status/idle/outdir。
+
+### 门禁
+pytest 96 passed；doccheck OK；anatomy_check OK；agentctl status/json OK；
+pyflakes `undefined name '` = 0。
+
 ## 2026-11-18 · agent_foundation 通用件桥接（只读库）
 
 ### 新增

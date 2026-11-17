@@ -26,6 +26,7 @@ import platform_util as util
 import model_policy as policy
 import prompt_transport as PT   # 大 prompt 截断（argv 上限实测坑）
 import evidence_gate as EG      # result evidence 坐标/引文校验
+import task_group as TG         # 任务组：感知(peers)/通讯(inbox)/留痕(events)
 
 import argparse
 import hashlib
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   workdir      TEXT,
   result_json  TEXT,
   error        TEXT,
+  group_id     TEXT NOT NULL DEFAULT '',
   created_at   REAL NOT NULL,
   started_at   REAL,
   ended_at     REAL
@@ -183,12 +185,26 @@ def db() -> sqlite3.Connection:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA busy_timeout=30000")
     conn.executescript(SCHEMA)
+    # 只加列迁移：任务组（group_id）是后补的，旧库不能重建
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
+    if "group_id" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN group_id TEXT NOT NULL DEFAULT ''")
+        conn.commit()
     return conn
 
 
 def event(conn, task_id: int, kind: str, payload: dict | None = None) -> None:
     conn.execute("INSERT INTO task_events(task_id, at, kind, payload) VALUES(?,?,?,?)",
                  (task_id, now(), kind, json.dumps(payload or {}, ensure_ascii=False)))
+    if kind in TG.REFRESH_KINDS:
+        # 组内成员快照是派生视图：状态变化即刷新（写文件，不参与本事务）
+        try:
+            row = conn.execute("SELECT group_id FROM tasks WHERE id=?",
+                               (task_id,)).fetchone()
+            if row and row["group_id"]:
+                TG.refresh_peers(conn, HOME, row["group_id"])
+        except Exception:
+            pass
 
 
 # ── 提示词模板 ──────────────────────────────────────────────────────────
@@ -294,18 +310,21 @@ def cmd_add(args) -> int:
     # 目录和提示词只在 tick 真正要拉起它时才创建（见 ensure_task_dir）。
     outdir = HOME / "tasks" / name / "out"
     conn = db()
+    gid = (getattr(args, "group", "") or "").strip()
     try:
         conn.execute(
             "INSERT INTO tasks(name,kind,input_json,prompt_path,status,priority,"
-            "max_attempts,outdir,backend,model,workdir,session_id,created_at) "
-            "VALUES(?,?,?,?, 'queued',?,?,?,?,?,?,?,?)",
+            "max_attempts,outdir,backend,model,workdir,session_id,group_id,created_at) "
+            "VALUES(?,?,?,?, 'queued',?,?,?,?,?,?,?,?,?)",
             (name, kind, json.dumps(inp, ensure_ascii=False), "",
              args.priority, args.max_attempts, str(outdir),
              args.backend, args.model, args.workdir,
-             f"{name}-{int(now())}", now()))
+             f"{name}-{int(now())}", gid, now()))
         tid = conn.execute("SELECT id FROM tasks WHERE name=?", (name,)).fetchone()["id"]
         event(conn, tid, "added", {"kind": kind})
         conn.commit()
+        if gid:
+            TG.register_member(HOME, gid, name, kind, args.goal or inp.get("goal", ""))
     except sqlite3.IntegrityError:
         print(f"任务名 {name} 已存在（幂等）", file=sys.stderr)
         return 2
@@ -328,6 +347,7 @@ def cmd_add(args) -> int:
 def cmd_plan(args) -> int:
     """一句话 → 自动拆成多个任务并入队。全程不要求用户写提示词。"""
     import re
+    gid = (getattr(args, "group", "") or "").strip() or f"g{int(now())}"
     prompt = PLANNER_PROMPT.format(
         max_tasks=args.max_tasks, goal=args.goal,
         kinds=", ".join(list_kinds()))
@@ -363,11 +383,53 @@ def cmd_plan(args) -> int:
             goal=it.get("goal") or args.goal, repo=args.repo,
             name=it.get("name"), priority=int(it.get("priority", 100)),
             max_attempts=args.max_attempts, backend=args.backend,
-            model=args.model, workdir=args.workdir, quiet=True)
+            model=args.model, workdir=args.workdir, quiet=True,
+            group=gid)
         if cmd_add(ns) == 0:
             added += 1
+    if added:
+        TG.group_event(HOME, gid, "plan_created", "plan",
+                       {"goal": args.goal, "members": added})
+    print(f"组 {gid}：同组任务互相感知（peers.md）、可用 taskctl send 通讯")
     print(f"目标已拆成 {added} 个任务并入队：{args.goal}")
     print("用 `taskctl stats` 看进度、`taskctl daemon` 开始跑")
+    return 0
+
+
+def cmd_send(args) -> int:
+    conn = db()
+    res = TG.send(conn, HOME, args.to, args.sender, args.message,
+                  force=args.force)
+    if res["sent"]:
+        event(conn, res["to_id"], "inbox_message",
+              {"from": args.sender, "bytes": res.get("bytes", 0),
+               "sha": res["sha"]})
+        conn.commit()
+    print(json.dumps(res, ensure_ascii=False))
+    return 0
+
+
+def cmd_group(args) -> int:
+    conn = db()
+    rows = TG.group_status(conn, args.gid)
+    if not rows:
+        print(f"组 {args.gid} 无成员（检查 group id）")
+        return 0
+    for r in rows:
+        t = conn.execute("SELECT * FROM tasks WHERE name=?",
+                         (r["name"],)).fetchone()
+        ts, _ = last_activity(t)
+        idle = int(now() - ts) if ts > 0 else -1  # 未启动任务显示 -1，不是天文数字
+        summary = ""
+        try:
+            summary = (json.loads(t["result_json"]).get("summary", "")[:80]
+                       if t["result_json"] else "")
+        except Exception:
+            pass
+        print(f"{r['name']:<26} {r['status']:<14} attempts={r['attempts']:<3} "
+              f"idle={idle:<7}s {summary}")
+    print(f"组目录：{TG.group_dir(HOME, args.gid)}"
+          "（context.md / peers.md / events.jsonl）")
     return 0
 
 
@@ -501,6 +563,17 @@ def ensure_task_dir(task: sqlite3.Row) -> str:
     if goal_md.exists():
         extra += ("\n## 当前任务目标（管理者可能已调整，以此为准）\n"
                   + goal_md.read_text(encoding="utf-8")[:800] + "\n")
+    gid = (task["group_id"] or "") if "group_id" in task.keys() else ""
+    if gid:
+        peers = TG.group_dir(HOME, gid) / "peers.md"
+        if peers.exists():
+            extra += ("\n## 组内队友状态（互相感知；完整版见 groups/%s/peers.md）\n"
+                      % gid + peers.read_text(encoding="utf-8")[:4000] + "\n")
+        inbox_new = TG.pending_inbox(outdir)
+        if inbox_new.strip():
+            extra += ("\n## 收件箱：发给你的新消息（本轮处理，进展写进 progress.md）\n"
+                      + inbox_new[:2000] + "\n")
+        TG.mark_consumed(outdir)
     pp.write_text(
         render_prompt(task["kind"], inp, outdir, task["name"], extra=extra),
         encoding="utf-8")
@@ -1061,12 +1134,14 @@ def main() -> int:
     a.add_argument("--workdir", default=str(HOME))
     a.add_argument("--priority", type=int, default=100)
     a.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS)
+    a.add_argument("--group", help="任务组 id：同组互相感知（peers.md）、可用 send 通讯")
     a.add_argument("--quiet", action="store_true")
     a.set_defaults(func=cmd_add)
 
     pl = sub.add_parser("plan", help="一句话自动拆成多个任务（完全不用写提示词）")
     pl.add_argument("--goal", required=True)
     pl.add_argument("--repo")
+    pl.add_argument("--group", help="组 id，默认自动生成（同次拆解同组）")
     pl.add_argument("--max-tasks", type=int, default=10)
     pl.add_argument("--timeout", type=int, default=240)
     pl.add_argument("--max-attempts", type=int, default=MAX_ATTEMPTS)
@@ -1074,6 +1149,17 @@ def main() -> int:
     pl.add_argument("--model", default="free-model")
     pl.add_argument("--workdir", default=str(HOME))
     pl.set_defaults(func=cmd_plan)
+
+    sd = sub.add_parser("send", help="给某任务的 AI 发消息（下一轮注入其 prompt）")
+    sd.add_argument("--to", required=True, help="目标任务名")
+    sd.add_argument("--from", dest="sender", default="user", help="发送方标识")
+    sd.add_argument("message", help="消息内容")
+    sd.add_argument("--force", action="store_true", help="重复消息也投递")
+    sd.set_defaults(func=cmd_send)
+
+    gp = sub.add_parser("group", help="看任务组全景（成员/状态/idle/摘要）")
+    gp.add_argument("gid", help="组 id")
+    gp.set_defaults(func=cmd_group)
 
     wk = sub.add_parser("_worker", help=argparse.SUPPRESS)
     wk.add_argument("--task-id", type=int, required=True)

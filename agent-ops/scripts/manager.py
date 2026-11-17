@@ -217,6 +217,9 @@ def build_task_snapshot(r: sqlite3.Row) -> str:
     return "\n".join([
         f"### 任务 #{r['id']} [{r['kind']}]",
         f"task_name: {r['name']}",
+        f"group: {r['group_id'] or '-'}"
+        + (f"（组内互等/队友产出见 {T.HOME}/groups/{r['group_id']}/peers.md）"
+           if r["group_id"] else ""),
         f"attempts={r['attempts']}/{r['max_attempts']} "
         f"started={T.iso(r['started_at'])} 进程存活={alive}",
         f"最近进展: {src} 距今 {idle}s；脚本初判={judge}",

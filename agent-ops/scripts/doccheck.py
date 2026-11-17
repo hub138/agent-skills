@@ -64,7 +64,7 @@ def check() -> list[str]:
                    "_done-contract.md", "anatomy_check.py",
                    "radar_cli.py", "radar_store.py", "radar_workspace.py",
                    "foundation_bridge.py", "prompt_transport.py",
-                   "provider_events.py", "evidence_gate.py",
+                   "provider_events.py", "evidence_gate.py", "task_group.py",
                    "GOVERNANCE.md", "ANATOMY.md", "CHANGELOG.md", "triage"):
         if needed not in skill:
             issues.append(f"SKILL.md 导航表漏了 {needed}")

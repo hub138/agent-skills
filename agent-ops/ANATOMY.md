@@ -107,6 +107,7 @@ agent-ops/
 | `prompt_transport.py` | 大 prompt 截断（argv 上限 ≈128KB 实测坑） | 保头尾、截断显式打日志 |
 | `provider_events.py` | CLI 失败分类 + 通道冷却（假绿灯/限流/鉴权/503） | 冷却落盘跨 cron 生效；foundation 未命中走本地兜底 |
 | `evidence_gate.py` | result evidence 坐标/引文校验 | 宽松口径只记警告事件，不拒收 |
+| `task_group.py` | 任务组：感知(peers)/通讯(inbox+send)/留痕(events.jsonl) | append-only；消息幂等，--force 才重发 |
 
 ---
 
