@@ -38,6 +38,9 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import supervisor as S          # 复用 PROMPT / ask_model / SUPERVISOR_MODEL
 import agentctl as A            # 复用 registry 与 session_file，避免自己猜会话路径
+import foundation_bridge as FB  # agent_foundation 桥接（只读库）
+import prompt_transport as PT   # 大 prompt 截断
+import provider_events as PE    # 失败分类与通道冷却
 
 AGENT_ROOT = Path(os.environ.get('AGENTCTL_ROOT', Path.home() / '.codebuddy/agentctl'))
 CB_BIN = util.resolve_bin('codebuddy', 'CODEBUDDY_CLI_BIN',
@@ -179,7 +182,12 @@ PROMPT = S.PROMPT + """
 
 def ask_model(snapshot):
     """用扩展后的 PROMPT 调监督者（supervisor.ask_model 用的是它自己的 PROMPT）。"""
-    prompt = PROMPT.replace('{snapshot}', snapshot)
+    cd = PE.in_cooldown()
+    if cd:
+        print('[supervise_agents] 提供方冷却中（%s 剩 %ss），跳过本轮'
+              % (cd.get('kind'), cd.get('remaining_seconds')), file=sys.stderr)
+        return None
+    prompt = PT.cap_prompt(PROMPT.replace('{snapshot}', snapshot))
     cmd = [CB_BIN, '-p', '--port', '0', '--output-format', 'text',
            '--permission-mode', 'bypassPermissions', '-y',
            '--model', S.SUPERVISOR_MODEL,
@@ -190,7 +198,12 @@ def ask_model(snapshot):
         print('[supervise_agents] 监督者超时，本轮不动', file=sys.stderr)
         return None
     out = (r.stdout or '').strip()
-    if not out or '"type":"error"' in out or 'Plugin runtime refresh' in out:
+    info = PE.handle_output(out)
+    if info:
+        print(f'[supervise_agents] 提供方失败：{info["reason"]}: {out[:120]}',
+              file=sys.stderr)
+        return None
+    if not out:
         print(f'[supervise_agents] 监督者无有效输出: {out[:120]}', file=sys.stderr)
         return None
     import re as _re

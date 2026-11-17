@@ -3,6 +3,34 @@
 > 每次提交一段，倒序。格式见 `GOVERNANCE.md` 5.1：
 > 改了什么 / 为什么 / 门禁 / 回滚。不写「优化了一下」。
 
+## 2026-11-18 · agent_foundation 通用件桥接（只读库）
+
+### 新增
+- `scripts/foundation_bridge.py`：定位 agent_foundation（env > 内部布局 > 公开布局）；
+  缺库返回 None，调用方手写回退——安装副本/别的机器不受影响。
+- `scripts/prompt_transport.py`：argv 上限 ≈128KB 截断（审查项目 232 条里 2 条 knot 实测坑）。
+- `scripts/provider_events.py`：失败分类（foundation provider_failure + agent 假绿灯形态）
+  + 落盘冷却（限流自报重置时刻按时刻冷却）。
+- `scripts/evidence_gate.py`：result evidence 坐标/引文校验（宽松口径只记警告）。
+- `tests/test_foundation.py`：15 项。
+
+### 接入
+- `manager`：监督调用前查冷却；prompt cap；解析走 protocol 三级（只采 EMBEDDED——
+  STREAM 级第一行可能是 CLI 内部事件），缺库回退手写正则。
+- `supervise_agents` / `supervise_jobs`：假绿灯/429 手写检测统一到 provider_events；冷却 + cap。
+- `agentctl`：registry 读写改 AtomicJsonStore（损坏不静默归零——foundation 生产事故教训）。
+- `taskctl`：build_cmd/plan prompt cap；收尾 evidence_gate 校验记 evidence_warning。
+- `SKILL.md` 增补「通用件桥接表」；`ANATOMY` 脚本表登记 4 个新模块。
+
+### 不迁移（理由在 SKILL.md 桥接表）
+`recovery.py` / `iteration_loop.py`（taskctl 语义已覆盖，避免双轨）；
+`resource_pool.py`（并发 = 进程池 + 模型红线发前拒绝，未实测不接）。
+
+### 门禁
+- agent_foundation：全量基线 7 个收集错误（__init__.py 与测试脱节，只读不修）；
+  涉及模块测试文件（safety_modules/runtime_infra/agent_foundation/privacy/adapters/webhook）57 项全绿。
+- agent-ops：pytest 90 passed / doccheck OK / anatomy OK / agentctl json OK / pyflakes 0。
+
 ## 2026-11-16 · 独立审查：证伪「无效优化 / 重复建设」
 
 ### 审查方式

@@ -393,3 +393,29 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 - 脚本只做确定性操作（解析/入账/clone/清理/渲染），**从不调用模型**；
   判断与落地由 AI 按提示词执行，改动同样过本文档的门禁。
 
+## 通用件桥接表（agent_foundation，只读库）
+
+> `agent_foundation`（agent-skills 仓库内）是可 import 的经验沉淀库，**只读**。
+> agent-ops 通过 `scripts/foundation_bridge.py` 尽力定位（环境变量
+> `AGENT_FOUNDATION_SRC` > 内部布局 > 公开仓库布局）；**缺库时全部走手写回退**，
+> 安装副本/别的机器不受影响。以下均已实测本库行为：
+
+| 坑名 | foundation 件 | agent-ops 用法 |
+|---|---|---|
+| 大 prompt 撑爆 argv（≈128KB；<审查项目> 232 条里 2 条 knot） | 无对应件，本侧补 `prompt_transport.py` | 所有 argv 传 prompt 处先 `cap_prompt`（保头尾、显式日志） |
+| 假绿灯 RC=0 但 stdout 是 error JSON | `provider_failure.classify`（限流/鉴权/503） | `provider_events.py` 的 `classify_output` 补 agent 形态 + 落盘冷却 |
+| 限流自报重置时刻 | `reset_cooldown_seconds` | 冷却窗口按自报时刻，不固定傻等 |
+| 证据坐标/引文编造 | `evidence.verify_quote` | `evidence_gate.py` 的 `check`：path:line 越界 / 引文未命中 progress.md，只记警告 |
+| JSON 解析单级兜底 | `protocol.parse_agent_output` 三级 | manager 解析先走三级（只采 EMBEDDED——STREAM 级第一行可能是 CLI 内部事件），缺库回退手写正则 |
+| 状态文件写半行/损坏静默归零 | `atomic_json.AtomicJsonStore` | agentctl registry、提供方冷却状态 |
+
+不迁移（写了理由）：`recovery.py` / `iteration_loop.py`——taskctl 的租约+重试+
+断点续跑语义已覆盖且更贴 SQLite 队列，引入文件级 checkpoint 会双轨；
+`resource_pool.py`——本 skill 并发 = worker 池 + 模型红线发前拒绝（不依赖 429 回落），
+supervise_* 是单次 cron 调用，接共享池收益低（**未实测**，谨慎不接）。
+
+foundation 全量 pytest 基线有 7 个收集错误（`__init__.py` 导出与测试脱节，
+只读库不修）；本轮桥接涉及的测试文件（test_safety_modules / test_runtime_infra /
+test_agent_foundation / test_privacy / test_adapters / test_webhook_and_snapshot）
+57 项全绿。
+

@@ -44,6 +44,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import taskctl as T  # noqa: E402  复用 SQLite 与任务目录约定
+import foundation_bridge as FB  # noqa: E402  agent_foundation 桥接（只读库）
+import prompt_transport as PT  # noqa: E402  大 prompt 截断
+import provider_events as PE  # noqa: E402  失败分类与通道冷却
 
 CB_BIN = util.resolve_bin("codebuddy", "CODEBUDDY_CLI_BIN",
                        ("/usr/local/bin/codebuddy", "/opt/homebrew/bin/codebuddy"))
@@ -269,8 +272,13 @@ def should_ask(snapshot: str, rows: list[sqlite3.Row]) -> tuple[bool, str]:
 
 
 def ask_model(snapshot: str) -> list[dict] | None:
+    cd = PE.in_cooldown()
+    if cd:
+        print(f"[manager] 提供方冷却中（{cd.get('kind')}，剩 "
+              f"{cd.get('remaining_seconds')}s），跳过本轮", file=sys.stderr)
+        return None
     # 不能用 str.format：提示词里的 JSON 示例 {"task":...} 会被当成模板变量。
-    prompt = PROMPT.replace("{snapshot}", snapshot)
+    prompt = PT.cap_prompt(PROMPT.replace("{snapshot}", snapshot))
     cmd = [CB_BIN, "-p", "--port", "0", "--output-format", "text",
            "--permission-mode", "bypassPermissions", "-y",
            "--model", SUPERVISOR_MODEL,
@@ -282,6 +290,18 @@ def ask_model(snapshot: str) -> list[dict] | None:
         print("[supervisor] 监督者超时，本轮不做任何动作", file=sys.stderr)
         return None
     out = (r.stdout or "").strip()
+    info = PE.handle_output(out)
+    if info:
+        print(f"[manager] 提供方失败：{info['reason']}", file=sys.stderr)
+        return None
+    # 三级恢复协议（桥接）：只信任 EMBEDDED 级的 JSON 数组；STREAM 级第一行
+    # 可能是 CLI 内部事件而非决策，不能采。缺库回退手写正则。
+    proto = FB.load("agent_foundation.protocol")
+    if proto is not None:
+        parsed = proto.parse_agent_output(out.splitlines())
+        if (parsed.level == proto.RecoveryLevel.EMBEDDED
+                and isinstance(parsed.payload, list) and parsed.payload):
+            return parsed.payload
     m = re.search(r"\[[\s\S]*\]", out)
     if not m:
         print(f"[manager] 输出无法解析，本轮不动: {out[:200]}", file=sys.stderr)
@@ -296,8 +316,12 @@ def ask_model(snapshot: str) -> list[dict] | None:
 
 def ask_model_single(snapshot: str, overview: str, name: str) -> dict | None:
     """单任务独立调用：小上下文、聚焦判断、失败只影响本任务。"""
-    prompt = (MANAGER_PROMPT_SINGLE.replace("{name}", name)
-              .replace("{overview}", overview))
+    cd = PE.in_cooldown()
+    if cd:
+        print(f"[manager] {name}: 提供方冷却中，跳过本轮", file=sys.stderr)
+        return None
+    prompt = PT.cap_prompt(MANAGER_PROMPT_SINGLE.replace("{name}", name)
+                           .replace("{overview}", overview))
     cmd = [CB_BIN, "-p", "--port", "0", "--output-format", "text",
            "--permission-mode", "bypassPermissions", "-y",
            "--model", SUPERVISOR_MODEL,
@@ -309,6 +333,17 @@ def ask_model_single(snapshot: str, overview: str, name: str) -> dict | None:
         print(f"[manager] {name}: 监督者超时，本任务本轮不动", file=sys.stderr)
         return None
     out = (r.stdout or "").strip()
+    info = PE.handle_output(out)
+    if info:
+        print(f"[manager] {name}: 提供方失败：{info['reason']}", file=sys.stderr)
+        return None
+    proto = FB.load("agent_foundation.protocol")
+    if proto is not None:
+        parsed = proto.parse_agent_output(out.splitlines())
+        if (parsed.level == proto.RecoveryLevel.EMBEDDED
+                and isinstance(parsed.payload, dict)
+                and parsed.payload.get("action")):
+            return parsed.payload
     m = re.search(r"\{[\s\S]*\}", out)
     if not m:
         print(f"[manager] {name}: 输出无法解析: {out[:150]}", file=sys.stderr)

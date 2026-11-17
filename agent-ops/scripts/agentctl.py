@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import platform_util as util
 import model_policy as policy
+import foundation_bridge as FB  # agent_foundation 桥接（只读库）
 
 import platform_util as util
 
@@ -62,6 +63,14 @@ def _ensure_home() -> None:
 
 def load_registry() -> dict:
     _ensure_home()
+    aj = FB.load("agent_foundation.atomic_json")
+    if aj is not None:
+        res = aj.AtomicJsonStore(REGISTRY, default={"tasks": {}}).load()
+        if res.ok:
+            return res.data
+        # 主文件与备份都读不出来 = 损坏，不是空库；禁止静默当空写回（foundation 生产事故）
+        print(f"[agentctl] registry 不可读：{res.error}", file=sys.stderr)
+        return {"tasks": {}}
     try:
         return json.loads(REGISTRY.read_text(encoding="utf-8"))
     except Exception:
@@ -70,6 +79,10 @@ def load_registry() -> dict:
 
 def save_registry(data: dict) -> None:
     _ensure_home()
+    aj = FB.load("agent_foundation.atomic_json")
+    if aj is not None:
+        aj.AtomicJsonStore(REGISTRY, default={"tasks": {}}).save(data)
+        return
     tmp = REGISTRY.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, REGISTRY)

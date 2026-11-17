@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import platform_util as util
 import model_policy as policy
+import prompt_transport as PT   # 大 prompt 截断（argv 上限实测坑）
+import evidence_gate as EG      # result evidence 坐标/引文校验
 
 import argparse
 import hashlib
@@ -463,6 +465,7 @@ def cmd_brief(args) -> int:
 
 # ── 调度 ────────────────────────────────────────────────────────────────
 def build_cmd(task: sqlite3.Row, prompt: str) -> list[str]:
+    prompt = PT.cap_prompt(prompt)  # argv 单参数上限 ≈128KB，实测撞过
     backend = task["backend"] or "codebuddy"
     model = task["model"] or "free-model"
     sid = task["session_id"]
@@ -785,6 +788,11 @@ def cmd_tick(args) -> int:
                 if isinstance(payload, dict):
                     err = validate_result(payload)
                     if err is None:
+                        # 证据坐标/引文校验：宽松口径只记警告，不拒收（误杀比漏报贵）
+                        for _p in EG.check(Path(r["outdir"]),
+                                           payload.get("evidence") or [])[:5]:
+                            event(conn, r["id"], "evidence_warning",
+                                  {"problem": _p})
                         conn.execute(
                             "UPDATE tasks SET status=?, result_json=?, ended_at=? WHERE id=?",
                             (payload["status"], json.dumps(payload, ensure_ascii=False),

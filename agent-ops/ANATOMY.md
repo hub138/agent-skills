@@ -103,6 +103,10 @@ agent-ops/
 | `radar_cli.py` | 雷达唯一入口 | 不调模型；同日多期用 `--slot` |
 | `radar_store.py` | 雷达台账（解析/入账/渲染） | 状态+记录+审计同事务；领取写 `claim` 事件 |
 | `radar_workspace.py` | clone/清理 | 只删缓存根内、台账记录的路径 |
+| `foundation_bridge.py` | 定位并加载 agent_foundation（只读经验库） | 缺库返回 None，调用方必须手写回退；绝不写 foundation 文件 |
+| `prompt_transport.py` | 大 prompt 截断（argv 上限 ≈128KB 实测坑） | 保头尾、截断显式打日志 |
+| `provider_events.py` | CLI 失败分类 + 通道冷却（假绿灯/限流/鉴权/503） | 冷却落盘跨 cron 生效；foundation 未命中走本地兜底 |
+| `evidence_gate.py` | result evidence 坐标/引文校验 | 宽松口径只记警告事件，不拒收 |
 
 ---
 

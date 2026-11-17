@@ -63,6 +63,8 @@ def check() -> list[str]:
     for needed in ("platform_util.py", "model_policy.py", "doccheck.py",
                    "_done-contract.md", "anatomy_check.py",
                    "radar_cli.py", "radar_store.py", "radar_workspace.py",
+                   "foundation_bridge.py", "prompt_transport.py",
+                   "provider_events.py", "evidence_gate.py",
                    "GOVERNANCE.md", "ANATOMY.md", "CHANGELOG.md", "triage"):
         if needed not in skill:
             issues.append(f"SKILL.md 导航表漏了 {needed}")

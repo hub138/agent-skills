@@ -31,6 +31,10 @@ import sys
 import time
 from pathlib import Path
 
+import foundation_bridge as FB  # agent_foundation 桥接（只读库）
+import prompt_transport as PT   # 大 prompt 截断
+import provider_events as PE    # 失败分类与通道冷却
+
 # 监督类调用必须走 knot，不走 codebuddy：
 # 实测 codebuddy -p 光启动就 58 秒，多实例并发时直接卡死（>5 分钟无输出）；
 # knot-cli 同样一句话 8 秒。差 7 倍，且 knot 是免费池。
@@ -165,7 +169,12 @@ def build_snapshot(jobs, base):
 
 
 def ask(snapshot):
-    prompt = PROMPT.replace('{snapshot}', snapshot)
+    cd = PE.in_cooldown()
+    if cd:
+        print('[supervise_jobs] 提供方冷却中（%s 剩 %ss），跳过本轮'
+              % (cd.get('kind'), cd.get('remaining_seconds')), file=sys.stderr)
+        return None
+    prompt = PT.cap_prompt(PROMPT.replace('{snapshot}', snapshot))
     cmd = [KNOT_BIN, 'chat', '--no-update', '--output-format', 'text',
            '--model', SUPERVISOR_MODEL, '-p', prompt]
     try:
@@ -176,7 +185,12 @@ def ask(snapshot):
     out = (r.stdout or '').strip()
     # knot 会附加 requestID/sessionID 行，解析前剔掉
     out = re.sub(r'^(requestID|sessionID):.*$', '', out, flags=re.M).strip()
-    if not out or 'too many requests' in out.lower() or '"code":429' in out:
+    info = PE.handle_output(out)
+    if info:
+        print(f'[supervise_jobs] 提供方失败：{info["reason"]}: {out[:120]}',
+              file=sys.stderr)
+        return None
+    if not out:
         print(f'[supervise_jobs] 无有效输出: {out[:120]}', file=sys.stderr)
         return None
     # knot 会在前面加 [任务规划中] 之类的中文方括号标签，直接 re.search(r'\[.*\]')
