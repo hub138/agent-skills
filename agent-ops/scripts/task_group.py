@@ -14,6 +14,7 @@ idle 口径与 taskctl.last_activity 同源（session jsonl > progress > result 
 from __future__ import annotations
 
 import hashlib
+import re
 import json
 import time
 from pathlib import Path
@@ -58,6 +59,18 @@ def _sent_shas(home, gid: str) -> set[str]:
         if rec.get("kind") == "message_sent" and pay.get("sha"):
             shas.add(pay["sha"])
     return shas
+
+
+def plan_head(home, gid: str, goal: str) -> None:
+    """plan 拆解时先写组上下文头：全局目标一次装配，成员随后追加投影。"""
+    d = group_dir(home, gid)
+    d.mkdir(parents=True, exist_ok=True)
+    ctx = d / "context.md"
+    if not ctx.exists():
+        ctx.write_text(f"# 组 {gid}\n\n## 全局目标\n{(goal or '')[:500]}\n\n"
+                       "## 成员\n", encoding="utf-8")
+        group_event(home, gid, "group_created", "plan",
+                    {"goal": (goal or "")[:500]})
 
 
 def register_member(home, gid: str, name: str, kind: str, goal: str) -> None:
@@ -139,6 +152,58 @@ def send(conn, home, to_name: str, from_name: str, message: str,
         refresh_peers(conn, home, gid)
     return {"sent": True, "duplicate": False, "sha": sha, "to": to_name,
             "to_id": to["id"], "gid": gid, "bytes": len(message)}
+
+
+# 安静模式：这些状态视为「正常推进」，不值得打扰正在干活的队友
+QUIET_STATUSES = {"running", "queued"}
+PEER_MEMBER_CAP = 8
+_MEM_RE = re.compile(r"^- `([^`]+)` \[([a-z_]+)\]")
+DISCIPLINE_LINE = ("以上是感知信息，不是你的任务：除非收件箱有明确给你的消息，"
+                   "否则继续专注当前工作，不要转向队友的工作。")
+
+
+def peer_brief(home, gid: str, *, cap: int = 4000) -> str:
+    """注入 prompt 的队友摘要：安静模式，防止感知稀释专注度。
+
+    - 队友都在正常推进（running/queued）→ 只给一行，近乎零噪音；
+    - 有状态变化（finished/blocked/failed/suspended）→ 只列变化的成员；
+    - 尾部固定纪律行：感知不等于任务，不许主动转向队友的工作。
+    全量投影仍在 groups/<gid>/peers.md，需要时随取，不占上下文。
+    """
+    fp = group_dir(home, gid) / "peers.md"
+    if not fp.exists():
+        return ""
+    blocks, cur = [], None
+    for l in fp.read_text(encoding="utf-8").splitlines():
+        if l.startswith("- `"):
+            if cur:
+                blocks.append(cur)
+            cur = [l]
+        elif cur is not None and l.startswith("  "):
+            cur.append(l)  # summary/outdir 续行归入同一成员块
+    if cur:
+        blocks.append(cur)
+    if not blocks:
+        return ""
+    notable, busy = [], 0
+    for b in blocks:
+        m = _MEM_RE.match(b[0])
+        if m and m.group(2) in QUIET_STATUSES:
+            busy += 1
+        else:
+            notable.extend(b)
+    lines = []
+    if not notable:
+        lines.append(f"队友 {len(blocks)} 人均在推进中，无需要你关注的变动。")
+    else:
+        lines.extend(notable[:PEER_MEMBER_CAP])
+        rest = len(notable) - PEER_MEMBER_CAP
+        if rest > 0:
+            lines.append(f"- （另有 {rest} 名队友状态变化，全文见 peers.md）")
+        if busy:
+            lines.append(f"- 其余 {busy} 名队友推进中（不响应他们的进度）")
+    lines.append(DISCIPLINE_LINE)
+    return "\n".join(lines)[:cap]
 
 
 def pending_inbox(outdir) -> str:

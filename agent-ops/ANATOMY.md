@@ -64,6 +64,7 @@ agent-ops/
 │       ├── _done-contract.md # 收工契约（render_prompt 自动附加到每个任务）
 │       ├── generic.md / fix-bug.md / research.md
 │       ├── reproduce-bug.md / compare-commit.md
+│       ├── audit-case.md     # 三桶 case 审计（漏报/误报/真阳性）
 ├── tests/                    # 回归测试，项数以 doccheck 为准
 ├── radar/                    # 技术雷达子功能（见第 8 节）
 │   ├── README.md             # 使用手册（人 + AI）

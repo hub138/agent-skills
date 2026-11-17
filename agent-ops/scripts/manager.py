@@ -214,7 +214,13 @@ def build_task_snapshot(r: sqlite3.Row) -> str:
             if goal_md.exists() else "(无 goal.md，用发起时的 input)")
     needs_compaction = prog_lines > T.COMPACT_MAX_LINES
     judge = f"疑似卡住({why})" if stale else "无异常"
-    return "\n".join([
+    gid = (r["group_id"] or "") if "group_id" in r.keys() else ""
+    ev_tail: list[str] = []
+    if gid:
+        evf = Path(T.HOME) / "groups" / gid / "events.jsonl"
+        if evf.exists():
+            ev_tail = evf.read_text(encoding="utf-8").splitlines()[-3:]
+    out = "\n".join([
         f"### 任务 #{r['id']} [{r['kind']}]",
         f"task_name: {r['name']}",
         f"group: {r['group_id'] or '-'}"
@@ -229,6 +235,7 @@ def build_task_snapshot(r: sqlite3.Row) -> str:
         f"error: {(r['error'] or '-')[:150]}",
         "result.json:", *res,
         "会话事件尾:", *sess,
+        *(["组事件尾:", *ev_tail] if ev_tail else []),
     ]) + f"\n=== goal.md ===\n{goal}\n=== progress.md（{prog_lines} 行）===\n{progress_block}"
 
 

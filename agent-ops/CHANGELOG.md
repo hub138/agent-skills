@@ -24,6 +24,12 @@ prompt 带消息与 peers → 调研笔记落盘 `groups/<gid>/` → 汇合由 m
 双任务同组 → send×2 → inbox 2 行 → 偏移量消费后 pending 清空 → 组事件 4 条
 → peers 投影含成员 status/idle/outdir。
 
+
+### 并行会话合入（提交时夹带说明）
+- task_group.py 的 peer_brief 安静模式（QUIET_STATUSES/DISCIPLINE_LINE/成员块摘要）
+  来自另一会话的进行中改动，本会话按其测试补全了 summary 续行块；
+- 两处纪律行措辞矛盾（工作/任务）统一为「工作」；
+- 同目录串行、组上下文头、audit-case 模板为本会话新增。
 ### 门禁
 pytest 96 passed；doccheck OK；anatomy_check OK；agentctl status/json OK；
 pyflakes `undefined name '` = 0。

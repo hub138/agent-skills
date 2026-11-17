@@ -255,6 +255,7 @@ def render_prompt(kind: str, inp: dict, outdir: Path, name: str,
 # ── add / import ────────────────────────────────────────────────────────
 KIND_FIELDS = {
     "generic":        "topic（想让它干什么，自由文本）",
+    "audit-case":     "data_dir（历史数据路径）, tool（被审计工具名）",
     "compare-commit": "commit, repo, file, diff, upstream_code（缺的跳过）",
     "reproduce-bug":  "bug_id, repo, test_case, workdir",
     "fix-bug":        "bug_id, repo, symptom, workdir",
@@ -388,6 +389,7 @@ def cmd_plan(args) -> int:
         if cmd_add(ns) == 0:
             added += 1
     if added:
+        TG.plan_head(HOME, gid, args.goal)
         TG.group_event(HOME, gid, "plan_created", "plan",
                        {"goal": args.goal, "members": added})
     print(f"组 {gid}：同组任务互相感知（peers.md）、可用 taskctl send 通讯")
@@ -565,10 +567,10 @@ def ensure_task_dir(task: sqlite3.Row) -> str:
                   + goal_md.read_text(encoding="utf-8")[:800] + "\n")
     gid = (task["group_id"] or "") if "group_id" in task.keys() else ""
     if gid:
-        peers = TG.group_dir(HOME, gid) / "peers.md"
-        if peers.exists():
-            extra += ("\n## 组内队友状态（互相感知；完整版见 groups/%s/peers.md）\n"
-                      % gid + peers.read_text(encoding="utf-8")[:4000] + "\n")
+        brief = TG.peer_brief(HOME, gid)
+        if brief:
+            extra += ("\n## 组内队友感知（安静模式：只有状态变化才出现）\n"
+                      + brief + "\n")
         inbox_new = TG.pending_inbox(outdir)
         if inbox_new.strip():
             extra += ("\n## 收件箱：发给你的新消息（本轮处理，进展写进 progress.md）\n"

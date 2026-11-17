@@ -102,13 +102,14 @@ def test_spawn_prompt_injects_peers_and_inbox(tenv):
     conn = t.db()
     task = conn.execute("SELECT * FROM tasks WHERE name='impl'").fetchone()
     prompt = t.ensure_task_dir(task)
-    assert "组内队友状态" in prompt
-    assert "research" in prompt
+    # 安静模式：队友都在 queued（正常推进）→ 只给一行，不列成员明细
+    assert "队友 2 人均在推进中" in prompt
+    assert "不要转向队友的工作" in prompt
     assert "方案已就绪" in prompt
-    # 已消费：再次渲染不再重复注入消息；peers 投影每轮都在
+    # 已消费：再次渲染不再重复注入消息；安静模式行仍在
     prompt2 = t.ensure_task_dir(task)
     assert prompt2.count("方案已就绪") == 0, "收件箱消费后不应重复注入"
-    assert "组内队友状态" in prompt2
+    assert "队友 2 人均在推进中" in prompt2
 
 
 def test_group_status_lists_members(tenv):
@@ -117,3 +118,19 @@ def test_group_status_lists_members(tenv):
     _add(t, "research", "调研")
     rows = TG.group_status(t.db(), "gtest")
     assert [r["name"] for r in rows] == ["impl", "research"]
+
+
+def test_peer_brief_lists_only_notable_changes(tenv):
+    t, TG, tmp = tenv
+    _add(t, "impl", "实现")
+    _add(t, "research", "调研")
+    conn = t.db()
+    quiet = TG.peer_brief(tmp / "home", "gtest")
+    assert "均在推进中" in quiet and "research" not in quiet
+    conn.execute("UPDATE tasks SET status='finished', result_json=? WHERE name='research'",
+                 (json.dumps({"status": "done", "summary": "调研完成"}),))
+    conn.commit()
+    TG.refresh_peers(conn, tmp / "home", "gtest")
+    loud = TG.peer_brief(tmp / "home", "gtest")
+    assert "`research` [finished]" in loud and "调研完成" in loud
+    assert "推进中" in loud and loud.rstrip().endswith("不要转向队友的工作。")
