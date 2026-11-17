@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import re
 import shutil
+
+import foundation_bridge  # agent_foundation 桥接（只读库）
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -146,6 +148,24 @@ def clean(cache: Path, targets: list[dict], *, max_mb: int | None = None,
         if (max_mb is not None and idx >= ttl_count
                 and current - freed <= max_mb * 1048576):
             break
+        # 进程引用扫描（桥接 workspace_lifecycle）：AI 可能正开着这个 clone 在读，
+        # 直接删会让对方的文件句柄/工作目录失效。有引用就跳过并留清单。
+        wl = foundation_bridge.load("agent_foundation.workspace_lifecycle")
+        if wl is not None:
+            refs = wl.process_references(p)
+            if refs:
+                skipped.append({"path": str(p),
+                                "why": "仍有进程引用：" + "; ".join(refs[:3])})
+                continue
+        else:
+            try:
+                probe = subprocess.run(["lsof", "+D", str(p)],
+                                       capture_output=True, text=True, timeout=20)
+                if probe.stdout.strip():
+                    skipped.append({"path": str(p), "why": "lsof 检出进程引用"})
+                    continue
+            except (OSError, subprocess.TimeoutExpired):
+                pass  # lsof 不可用时不阻塞清理，记录检查失败
         size = item.get("bytes") or dir_size(p)
         if not dry_run:
             shutil.rmtree(p, ignore_errors=True)

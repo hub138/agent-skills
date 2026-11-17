@@ -370,3 +370,44 @@ def test_cli_intake_dry_run(tmp_path, monkeypatch, capsys):
     import json
     data = json.loads(capsys.readouterr().out)
     assert data["count"] == 2
+
+
+def test_check_new_ingests_once_and_notifies(tmp_path, monkeypatch, capsys):
+    """自动感知闭环：新简报入账+分诊+落通知；重跑幂等（0 新增）。"""
+    import radar_cli
+    repo = tmp_path / "tech-radar"
+    (repo / "data" / "briefs").mkdir(parents=True)
+    (repo / "data" / "briefs" / "2026-11-18-brief.md").write_text(
+        BRIEF_TECH, encoding="utf-8")
+    monkeypatch.setenv("RADAR_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("RADAR_TECH_REPO", str(repo))
+    assert radar_cli.main(["check-new", "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["new_briefs"] == 1
+    assert first["routes"]["deep"] >= 1
+    assert first["routes"]["deep"] == 2  # BRIEF_TECH 两条都是机制类
+    assert radar_cli.main(["check-new", "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["new_briefs"] == 0
+    nf = tmp_path / "state" / "notifications.jsonl"
+    assert len(nf.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_clean_skips_paths_in_use(tmp_path, monkeypatch):
+    """清理前的进程引用扫描（workspace_lifecycle 桥接）：有引用就跳过并留清单。"""
+    import radar_workspace as ws
+
+    class _WL:
+        @staticmethod
+        def process_references(p):
+            return ["pid=4242 grep -q agent-ops"]
+
+    monkeypatch.setattr(ws.foundation_bridge, "load", lambda name: _WL)
+    cache = tmp_path / "cache"
+    target = cache / "r1"
+    target.mkdir(parents=True)
+    (target / "x").write_text("x" * 100, encoding="utf-8")
+    res = ws.clean(cache, [{"path": str(target), "bytes": 100}])
+    assert res["removed"] == []
+    assert res["skipped"][0]["why"].startswith("仍有进程引用")
+    assert target.exists()

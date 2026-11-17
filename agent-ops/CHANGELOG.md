@@ -3,6 +3,27 @@
 > 每次提交一段，倒序。格式见 `GOVERNANCE.md` 5.1：
 > 改了什么 / 为什么 / 门禁 / 回滚。不写「优化了一下」。
 
+## 2026-11-18 · 自动感知上游更新 + foundation 全量盘点（39 模块）
+
+### 新增
+- `radar_cli.py check-new`：pull → 按内容指纹发现未入账新简报 → 自动 intake+triage →
+  通知落 `radar/state/notifications.jsonl`（幂等，2 项测试）。
+- `radar_workspace.clean` 清理前进程引用扫描（桥接 `workspace_lifecycle.process_references`，
+  缺库回退 lsof）：AI 正在读的 clone 不再被清掉。
+- SKILL.md 桥接表补「foundation 全量盘点（39 模块）」：已桥接 8 / 本地等效 10 /
+  备好未接 4（触发条件明确）/ 不适用 17（逐类理由）。
+
+### 真实闭环
+tech-radar 上游 11-16 21:23 有更新（L2 scoring / audit 命令 / parser fix）；
+check-new 实跑：7 期新简报、80 条候选自动入账+分诊（3 deep / 35 brief / 42 skip），
+新格式（`**100 分**` + `- 核心：/创新点：/凭什么：/证据：/维度：/链接：`）现有 parser 兼容，无需适配。
+
+### 通知现状（诚实）
+上游简报由 knowledge-site 周一 09:00 cron 生成并经知识站通知到人；
+agent-ops 侧此前无自动拉取。本轮加了 check-new 子命令与 cron 建议文案
+（crontab 变更按 GOVERNANCE 外部契约留痕），「通知到人」先走
+notifications.jsonl + 每日一问，webhook 接入列为备好未接。
+
 ## 2026-11-18 · 任务组：子 agent 互相感知与通讯（group）
 
 ### 新增

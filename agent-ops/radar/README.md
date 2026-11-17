@@ -81,6 +81,23 @@ radar/LEDGER.md                      ← 台账渲染（自动生成，进 git�
 
 ---
 
+## 3.5 上游更新自动感知（check-new）
+
+```bash
+python3 scripts/radar_cli.py check-new --from-dir ~/tech-radar
+```
+
+流程：`git pull --ff-only` → 扫 `data/briefs/*.md` → 按内容指纹跳过已入账 →
+新简报自动 `intake` + `triage` → 结果追加到 `radar/state/notifications.jsonl`。
+重跑幂等（0 新增）。建议 cron 每天两次：
+
+```
+0 8,13 * * * flock -n /tmp/radar-check-new.lock python3 <skill>/scripts/radar_cli.py check-new --from-dir ~/tech-radar --json >> <skill>/radar/state/check-new.log 2>&1
+```
+
+通知到人的两个途径：你让 AI 每天问一次「今天雷达有什么 deep 新条目」；
+或后续接 webhook（foundation 的 webhook 件已备好未接）。
+
 ## 4. 判定口径
 
 ### 4.1 先分诊（必要步骤，不是可选）
@@ -225,6 +242,7 @@ python3 scripts/radar_cli.py clean --dry-run   # 只报告不删
 | `radar_cli.py applied --candidate N --files ... --summary ...` | 登记落地变更 |
 | `radar_cli.py ledger` | 重新渲染 `radar/LEDGER.md` |
 | `radar_cli.py events --kind claim` | 查领取者 / 覆盖事件等审计流 |
+| `radar_cli.py check-new --from-dir <tech-radar>` | 拉上游更新：新简报自动 intake+分诊+落通知（幂等） |
 | `radar_cli.py status [--json]` | 汇总 + 磁盘 + 最近事件 |
 | `radar_cli.py clean [--days N] [--max-mb N] [--dry-run]` | 清理工作区 |
 

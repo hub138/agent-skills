@@ -381,6 +381,8 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 ## 技术雷达（radar）：把外部情报变成可回滚的借鉴
 
 触发词：用户说「看看这期雷达有什么可借鉴」「把这个仓库分析一下能不能抄」时走本节。
+上游更新自动感知：`radar_cli.py check-new --from-dir <tech-radar 本地仓库>`
+（pull → 新简报自动 intake+分诊 → 通知写 `radar/state/notifications.jsonl`，重跑幂等）。
 
 - 入口：`python3 scripts/radar_cli.py --help`。完整说明 `radar/README.md`，
   结构解剖 `ANATOMY.md` 第 8 节，开发规范 `GOVERNANCE.md`。
@@ -430,6 +432,26 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 断点续跑语义已覆盖且更贴 SQLite 队列，引入文件级 checkpoint 会双轨；
 `resource_pool.py`——本 skill 并发 = worker 池 + 模型红线发前拒绝（不依赖 429 回落），
 supervise_* 是单次 cron 调用，接共享池收益低（**未实测**，谨慎不接）。
+
+### foundation 全量盘点（39 个模块，覆盖口径）
+
+- **已桥接/移植（8）**：`provider_failure`（→`provider_events`）、`evidence`（→`evidence_gate`）、
+  `protocol`（→manager 解析）、`atomic_json`（→registry/冷却状态）、
+  `workspace_lifecycle.process_references`（→radar 清理前进程扫描）、
+  `transcript`/`events`（组事件 schema 对齐）、`idempotency`（send 消息幂等语义）。
+- **本地等效实现，不引入（10）**：`recovery`/`iteration_loop`（taskctl 租约+重试已覆盖）、
+  `resource_pool`（worker 池+模型红线发前拒绝）、`convoy`（同 workdir 串行一条 SQL）、
+  `prefilter`（triage 词表已是等价预筛）、`risk_gate`（apply-borrowing 门禁等价）、
+  `probe`（deadman 六种检查）、`webhook`（deadman 通知链）、`cache_lease`（radar clone
+  是路径缓存而非编译缓存）、`notify_cadence`（本 skill 通知全异常驱动，无长循环成功通知）。
+- **备好未接，触发条件明确（4）**：`context.ContextPacket`（组上下文需要多文档预算装配时）、
+  `file_memory`（出现跨组长期记忆需求时）、`snapshot`（多方写共享仓库文件前）、
+  `campaign`（出现「按 commit 逐条批量推进」场景时，如 rzz 批量审计）。
+- **不适用（17）**：经验提炼类（admission/experience/genealogy/lineage——FIELD-NOTES
+  人工纪律优先，AI 自写经验有污染风险）、批量工作台类（campaign 之外的 artifacts/budget——
+  CLI 不回传 token 用量，无预算数据源）、运行态类（environment_guard/execution_receipt——
+  无运行实例状态/源树绑定场景）、投递类（advisory——inbox 偏移量语义已够）、
+  `adapters`（是包不是模块）。
 
 foundation 全量 pytest 基线有 7 个收集错误（`__init__.py` 导出与测试脱节，
 只读库不修）；本轮桥接涉及的测试文件（test_safety_modules / test_runtime_infra /

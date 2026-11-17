@@ -21,8 +21,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -278,6 +281,72 @@ def cmd_applied(args) -> int:
     return 0
 
 
+def cmd_check_new(args) -> int:
+    """自动感知上游简报更新：pull → 发现未入账新简报 → intake + triage → 落通知。
+
+    通知写 radar/state/notifications.jsonl（append，行容错）；「通知到人」由
+    cron 定时调本命令 + 你让 AI 每天问一次 `radar_cli.py events`/status 实现，
+    本命令不直接推消息通道。
+    """
+    conn = store.connect()
+    store.init_db(conn)
+    repo = Path(args.from_dir or os.environ.get(
+        "RADAR_TECH_REPO", str(Path.home() / "tech-radar"))).expanduser()
+    notes = []
+    if (repo / ".git").exists():
+        try:
+            pull = subprocess.run(
+                ["git", "-C", str(repo), "pull", "--ff-only", "origin",
+                 args.branch], capture_output=True, text=True, timeout=180)
+            notes.append((pull.stdout.strip() or pull.stderr.strip())[:300])
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            notes.append(f"pull 失败：{exc}")
+    files = _brief_files(repo, latest=False)
+    known = {r["raw_sha256"] for r in conn.execute("SELECT raw_sha256 FROM briefs")}
+    results, routes = [], {"deep": 0, "brief": 0, "skip": 0}
+    for f in files:
+        try:
+            text = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if sha in known:
+            continue  # 已入账（按内容指纹：换文件名/换目录都不重复）
+        date = _date_from_name(f)
+        res = store.ingest_brief(conn, text, brief_date=date, slot=args.slot,
+                                 source="tech-radar", source_path=str(f))
+        raw_out = store.RADAR_DIR / "intake" / f"{date}-{res['brief_id']}.md"
+        if not res["duplicate"]:
+            raw_out.parent.mkdir(parents=True, exist_ok=True)
+            raw_out.write_text(text if text.endswith("\n") else text + "\n",
+                               encoding="utf-8")
+            conn.execute("UPDATE briefs SET source_path=? WHERE id=?",
+                         (store.rel(raw_out), res["brief_id"]))
+            conn.commit()
+        rc = {"deep": 0, "brief": 0, "skip": 0}
+        for row in conn.execute("SELECT id FROM candidates WHERE brief_id=?",
+                                (res["brief_id"],)):
+            info = store.triage_candidate(conn, row["id"])
+            rc[info["route"]] += 1
+        for k in routes:
+            routes[k] += rc[k]
+        results.append({"brief_date": date, "brief_id": res["brief_id"],
+                        "routes": rc})
+    notif = {"ts": store.now_str(), "new_briefs": len(results),
+             "routes": routes,
+             "hint": ("有 %d 条 deep 新条目待深读，走 radar/prompts/session.md"
+                      % routes["deep"]) if routes["deep"] else "本期无 deep 新条目"}
+    try:
+        nf = store.state_root() / "notifications.jsonl"
+        nf.parent.mkdir(parents=True, exist_ok=True)
+        with nf.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(notif, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    _out({**notif, "briefs": results, "notes": notes}, args.json)
+    return 0
+
+
 def cmd_events(args) -> int:
     conn = store.connect()
     store.init_db(conn)
@@ -412,6 +481,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kind", help="事件类型")
     p.add_argument("--limit", type=int, default=50)
     p.set_defaults(func=cmd_events)
+
+    cn = new("check-new",
+             "拉取上游简报更新：新简报自动入账+分诊+落通知")
+    cn.add_argument("--from-dir",
+                    help="tech-radar 本地仓库；默认 $RADAR_TECH_REPO 或 ~/tech-radar")
+    cn.add_argument("--branch", default="master")
+    cn.add_argument("--slot", default="", help="本批简报的批次标记")
+    cn.set_defaults(func=cmd_check_new)
 
     p = new("status", "汇总 + 磁盘")
     p.set_defaults(func=cmd_status)
