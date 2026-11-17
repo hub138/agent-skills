@@ -39,8 +39,12 @@ def test_bridge_returns_none_when_missing(tmp_path, monkeypatch):
 
 def test_bridge_env_var_wins(tmp_path, monkeypatch):
     monkeypatch.setattr(FB, "SKILL_ROOT", tmp_path)
-    monkeypatch.setenv("AGENT_FOUNDATION_SRC",
-                       str(ROOT.parent / "agent-skills" / "agent_foundation" / "src"))
+    # 内部布局与公开仓库布局都能命中（agent-ops 与 agent_foundation 相对位置不同）
+    cands = [ROOT.parent / "agent_foundation" / "src",
+             ROOT.parent / "agent-skills" / "agent_foundation" / "src"]
+    src = next((str(c) for c in cands if (c / "agent_foundation").is_dir()), None)
+    assert src, "测试机应至少存在一份 agent_foundation"
+    monkeypatch.setenv("AGENT_FOUNDATION_SRC", src)
     assert FB.src_dir() is not None
     assert FB.load("agent_foundation.evidence") is not None
 
