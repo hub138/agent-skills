@@ -8,7 +8,22 @@
 
 | 期数 | 候选 | 待分析 | 已分析 | 采纳 | 改造 | 不抄 | 已落地变更 | 缓存占用 |
 |---|---|---|---|---|---|---|---|---|
-| 10 | 91 | 0 | 91 | 2 | 5 | 84 | 2 | 324.9 MB |
+| 13 | 122 | 0 | 122 | 2 | 5 | 115 | 2 | 0.0 MB |
+
+## 2026-11-19 技术情报简报 2026-11-19
+
+来源：tech-radar（（原文，公开版略） 8 条。
+
+| # | 条目 | 类型 | 路由 | 相关 | 结论 | 理由 / 报告 |
+|---|---|---|---|---|---|---|
+| 1 | [Bug0 发布 QA Agent，利用缓存的 Playwright 回放实现回归测试自动化](https://www.infoq.cn/article/eO0w7sdaGClvppFqwt5j?utm_source=rss&utm_medium=article) | article | skip | 1 | 不抄 | 与 #89 同文，结论见 17-bug0-qa-agent.md（skip，领域不匹配） `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 2 | [从“能写代码”到“能交付”：腾讯轻量云 LoopForge 云端 Loop实践](https://www.infoq.cn/article/Ae5uw6m9wC2gj5QUCC36?utm_source=rss&utm_medium=article) | article | brief | 1 | 不抄 | 与 01-loopforge repo 分析同源，无新增编排机制 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 3 | [从蚂蚁阿福谈起：面向生产流量的 Agent 可观测实践](https://juejin.cn/post/7709020275468501033) | article | brief | 1 | 不抄 | 与 #91/06-agent-observability 同文同数据 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 4 | [Inside the Codex sandbox](#) | other | brief | 1 | 不抄 | brief 级：Agent 相关但 brief 级：综述/产品文无新机制（详见批量报告） `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 5 | [Goodlink 全新传输协议，叠加 BBR 拥塞控制算法与丢包补偿](#) | other | brief | 1 | 不抄 | brief 级：基建/网络类，非本 skill 领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 6 | [从快速部署到统一运营，Agent 的 AH Moment 来了！](#) | other | brief | 1 | 不抄 | brief 级：观点/通稿类，无硬信息 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 7 | [如何让 Agent 从“能跑起来”到“可规模化、可信赖地持续生产”？](#) | other | brief | 1 | 不抄 | brief 级：Agent 相关但 brief 级：综述/产品文无新机制（详见批量报告） `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 8 | [Agent 驱动 MaaS 新范式，如何让模型能力随需而用？](#) | other | brief | 1 | 不抄 | brief 级：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
 
 ## 2026-11-19 未命名简报（12:29-partial(3/7篇) 批次）
 
@@ -19,6 +34,43 @@
 | 1 | [Bug0 发布 QA Agent，利用缓存的 Playwright 回放实现回归测试自动化](https://www.infoq.cn/article/eO0w7sdaGClvppFqwt5j) | article | deep | 2 | 不抄 | 领域不匹配（UI 回归）；确定性重放思想已在收工契约 `radar/analyses/2026-11-19/17-bug0-qa-agent.md` |
 | 2 | [从"能写代码"到"能交付"：腾讯轻量云 LoopForge 云端 Loop实践](https://www.infoq.cn/article/Ae5uw6m9wC2gj5QUCC36) | article | brief | 1 | 不抄 | brief 级信号弱，按摘要判 skip（如需深读走 --force 复核） `radar/analyses/2026-11-19/18-brief-bulk-summary.md` |
 | 3 | [从蚂蚁阿福谈起：面向生产流量的 Agent 可观测实践](https://juejin.cn/post/7709020275468501033) | article | brief | 1 | 不抄 | brief 级信号弱，按摘要判 skip（如需深读走 --force 复核） `radar/analyses/2026-11-19/18-brief-bulk-summary.md` |
+
+## 2026-11-18 技术情报简报 2026-11-18
+
+来源：tech-radar（（原文，公开版略） 18 条。
+
+| # | 条目 | 类型 | 路由 | 相关 | 结论 | 理由 / 报告 |
+|---|---|---|---|---|---|---|
+| 1 | [A Listen-Think-Speak Framework for Efficient Streaming Voice Interaction via Semantic Triggering and Incremental Reasoning](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 2 | [SCOPE: Signal-Calibrated On-Policy Distillation Enhancement with Dual-Path Adaptive Weighting](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 3 | [TRUST-SQL: Tool-Integrated Multi-Turn Reinforcement Learning for Text-to-SQL over Unknown Schemas](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 4 | [Fast-Slow Thinking Reward Model: Efficient Integration of Scalar and Generative Reward Models](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 5 | [ToolForge: A Data Synthesis Pipeline for Multi-Hop, Multi-Turn, and Self-Reflective Tool-Use Data](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 6 | [SIRI: Self-Internalizing Reinforcement Learning with Intrinsic Skills for LLM Agent Training](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 7 | [RACE: Scalable Statistical Estimation of Functional Consistency in LLM Neurons](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 8 | [One Instruction Is a Benchmark: End-to-End Instruction-Following Evaluation with FlexBench](https://tech.meituan.com/2026/11/18/Papers-EMNLP-2026.html) | article | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 9 | [用 Go 扛秒杀](#) | other | skip | 1 | 不抄 | skip 维持：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 10 | [谷歌 SRE 圣经被迫重写](#) | other | brief | 1 | 不抄 | brief 级：论文/领域专深，非编排运维领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 11 | [9 MB，一个文件，一个编程 Agent](#) | other | brief | 1 | 不抄 | brief 级：Agent 相关但 brief 级：综述/产品文无新机制（详见批量报告） `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 12 | [代码里明明配置了鉴权，服务却仍暴露公网](#) | other | brief | 1 | 不抄 | brief 级：基建/网络类，非本 skill 领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 13 | [绝不愿再创办一次英伟达](#) | other | skip | 1 | 不抄 | skip 维持：观点/通稿类，无硬信息 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 14 | [800 个 MCP Server、5000 个工具](#) | other | brief | 1 | 不抄 | brief 级：Agent 相关但 brief 级：综述/产品文无新机制（详见批量报告） `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 15 | [Agent演示惊艳，一进生产就不好用](#) | other | brief | 1 | 不抄 | brief 级：Agent 相关但 brief 级：综述/产品文无新机制（详见批量报告） `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 16 | [AI生成的代码必须开源](#) | other | brief | 1 | 不抄 | brief 级：模型/产品发布类，与编排运维无关 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 17 | [Varlock 发布了 Bumpy](#) | other | brief | 1 | 不抄 | brief 级：模型/产品发布类，与编排运维无关 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 18 | [Release v0.25.0 · openai/openai-agents-python](#) | other | brief | 1 | 不抄 | brief 级：模型/产品发布类，与编排运维无关 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+
+## 2026-11-17 技术情报简报 2026-11-17
+
+来源：tech-radar（（原文，公开版略） 5 条。
+
+| # | 条目 | 类型 | 路由 | 相关 | 结论 | 理由 / 报告 |
+|---|---|---|---|---|---|---|
+| 1 | [《Agent评测白皮书》系列02：商家 AI 助手的评测与优化闭环实践](https://tech.meituan.com/2026/11/17/Agent-Evaluation-White-Paper-02.html) | article | skip | 1 | 不抄 | skip 维持：Agent 相关但 brief 级：综述/产品文无新机制（详见批量报告） `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 2 | [Google Cloud API Gateway 推出面向实时 AI 应用的流式处理](https://www.infoq.cn/article/X2WRCQI4NorJVEvpgX5B?utm_source=rss&utm_medium=article) | article | skip | 1 | 不抄 | skip 维持：基建/网络类，非本 skill 领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 3 | [File Mover Express：亚马逊云科技发布用于 S3 文件传输的开源工具](#) | other | skip | 1 | 不抄 | skip 维持：模型/产品发布类，与编排运维无关 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 4 | [Azure 版 LocalStack 进入公开预览阶段，安全设置会存储但不生效](#) | other | skip | 1 | 不抄 | skip 维持：基建/网络类，非本 skill 领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
+| 5 | [从自动扩缩容到跨池调度：作业帮如何让 Flink 计算资源节省 30%？](#) | other | brief | 1 | 不抄 | brief 级：基建/网络类，非本 skill 领域 `radar/analyses/2026-11-19/20-bulk-1117-1119.md` |
 
 ## 2026-11-16 技术情报简报 2026-11-16
 
