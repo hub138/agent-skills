@@ -1062,3 +1062,87 @@ https://raw.githubusercontent.com/<org>/<repo>/<tag>/<path>
 `mysql-test-run.pl:3238` 重试时 `$resfile_name` 未初始化 → `Invalid file name '.result'`
 → 一次偶发失败被虚报成"N 次全失败"，误导所有人以为确定性失败。
 值得报给平台组。
+
+---
+
+## 32. 先问「代码层能不能定」，再决定派不派真机
+
+**现象**：`sandbox iframe 内 mailto: 是否被放行` 这条，我连派 5 轮真机评审都没过
+（评审最后要求「本机实际表现」段必须是实测，但那正是待测内容——逻辑死循环）。
+最后读三处代码 5 分钟定论。
+
+**代码层怎么定的**（三层追到底）：
+```
+① 基线 electron_browser_client.cc:932-953
+   HandleExternalProtocol 收到 is_primary_main_frame / sandbox_flags，
+   但 base::BindOnce 只传了 has_user_gesture → sandbox 标志被丢弃
+② web_contents_permission_helper.cc:304
+   RequestOpenExternalPermission 直接发起 OPEN_EXTERNAL 权限请求，无 sandbox 检查
+③ WB window-permissions.ts:36
+   handleAllowedPermission 只放行 media / fullscreen
+   （全仓搜 externalURL 0 命中，从没处理过该权限）→ :206 callback(false) 拒绝
+→ 结论：外部程序不会被拉起。挡住它的是 WB 白名单，不是上游的 sandbox 检查。
+```
+
+**判据：哪些属于「代码层可判定」**
+| 类型 | 特征 | 怎么定 |
+|---|---|---|
+| 参数是否向下传递 | 函数签名改了但下层没变 | 顺 `BindOnce` / 调用链读到底 |
+| 白名单是否包含某值 | `allowed` / `whitelist` / `handleAllowed*` | 读集合内容 |
+| 权限门控是否放行 | `setPermissionRequestHandler` / `callback(true\|false)` | 读分支 + 兜底 |
+| 分支是否可达 | 有无调用点 | grep 调用点，零命中即不可达 |
+| 常量/配置的值 | `const X = [...]` | 直接读值 |
+| 基线是否含修复 | patch 的坏写法是否还在 | 读基线 tag 的源码 |
+
+**只有这些才需要真机**：时序竞态（回调晚于销毁）、内存累积、渲染性能、依赖机器状态的竞态。
+「代码上两边都说得通」的情形，才是真机的用武之地。
+
+**已固化为门禁**（`enqueue_guard.py` 第 ② 道）：
+命中上述类型且输入里没有「代码层结论 + 为何仍需实测」→ 直接拒绝派单。
+配套 `code_first.py` 做类型识别。
+
+## 35. watchdog.sh 两个拉起 bug：续行符里夹注释导致前台阻塞、稳定版 CLI 不认 --resume-create-missing（2026-11-19）
+
+**现象**：<审查项目> 托管总负责人会话 `intro-chief` 时，手动跑一次 `watchdog.sh intro-chief`，卡了整整 5 分钟（被 cron 行的 `timeout 300` 杀掉）。期间 02:30 的 cron 报「上一轮看门狗还没结束，本轮跳过」；`logs/intro-chief.run.log` 不存在，`watchdog.log` 里也没有「已拉起」。
+
+**根因 1**：拉起命令是一串 `\` 续行，中间夹了两行注释（`-- "$prompt" \` 的下一行是 `# ↑ "--" 必须保留…`）。bash 把续行拼起来后，`#` 之后的内容全部当作注释，命令到 `-- "$prompt"` 就结束了。后面单独一行的 `>> "$runlog" 2>&1 &` 变成了「空命令 + 重定向 + 后台」。结果是：
+- `setsid nohup bash -c …` 在前台运行，watchdog 阻塞到 AI 进程结束；
+- AI 的输出写到调用者的管道里，而不是 run.log；
+- flock 锁一直被占着，直到 timeout 300 把 watchdog 杀掉。
+
+这个问题从 2026-10-28 加注释时就存在了。之前没暴露，是因为 wb-scan 每次很快就正常结束。
+
+**根因 2**：cron 环境要用稳定版 `/usr/local/bin/codebuddy`（2.132.0），否则 nvm 下的 2.183.0 会出「返回码 0 但没有输出」的假成功。但 2.132.0 不认识 `--resume-create-missing`，实测 `error: unknown option '--resume-create-missing'`，退出码 1，秒退。
+
+**修法**（scripts/watchdog.sh）：
+1. 注释移到 `setsid` 行之上，续行之间不再夹任何内容。
+2. 先探测 `"$CB_BIN" --help` 里有没有 `--resume-create-missing`；没有的话，会话文件 `~/.codebuddy/projects/*/<sid>.jsonl` 已存在就用 `--resume`，不存在就用 `--session-id` 新建。
+
+**验证**：
+- 修后手动触发，5.5 秒返回，日志写了「已拉起…pid=2992859」，命令行是 `--resume intro-chief`；
+- 首次拉起（会话文件不存在）走的是 `--session-id intro-chief`；
+- 进程被不明原因杀掉后，02:45 的 cron 自动续接，会话事件继续增长；
+- `pytest tests/` 99 项通过，`doccheck.py` 通过。
+
+**配套**：cron 行要带 `CB_BIN=/usr/local/bin/codebuddy`（watchdog 拉起用）和 `CODEBUDDY_CLI_BIN=/usr/local/bin/codebuddy`（被托管的 AI 再派子 agent 时用）。`install-cron` 生成的行不带这两个变量，装完要补上。
+
+**教训**：shell 里的长续行命令，注释只能放在整条命令的上方。验证时不能只看 `bash -n`（语法完全合法），要实测「watchdog 是否立即返回」和「run.log 是否有内容」。
+
+## 36. 无退出码被当成「首次拉起」，异常重启全程静默（2026-11-19）
+
+**现象**：`intro-chief` 连续 17 次拉起，watchdog.log 里每次都是「重启计数 0」，一次「正常结束」都没有；`state/intro-chief.exit` 始终为空。总负责人会话每轮跑 8~12 分钟就消失，但日志看不出是正常退出还是被强杀，查了多轮 OOM / cron / 看门脚本都无结论。
+
+**根因**：拉起时会 `rm -f "$exitfile"`，wrapper 是 `bash -c '…; "$@"; echo $? > "$EXITFILE"' _`。wrapper 正常退出会写回退出码；若整个进程组被 SIGKILL / OOM 杀掉，这行 `echo` 根本执行不到。而 `check_job` 里的分支是：
+
+```bash
+if [ -z "$ec" ]; then
+  :   # 这个任务从来没跑过，本次是首次拉起，不算失败重试
+```
+
+`ec` 为空一律当作「从没跑过」，于是 `cnt` 永远不增加、`max_restarts` 熔断永不触发、`NEED-ATTENTION` 永不生成。这也是「重启计数 0」的来历——不是没异常，是异常被吞了。
+
+**修法**：`ec` 为空时再看 `$job.laststart`（拉起时写入）。有值 = 之前确实拉起过，但没拿到退出码 → 判定为「wrapper 被强杀」，写一条 wlog 并 `cnt=$((cnt+1))`；`laststart` 不存在或为 0 才是真首次。正常退出写回 `ec=0` 的轮次不受影响，仍走 `cnt=0`。
+
+**验证**：`bash -n`、`pytest tests/` 99 项通过；在任务存活时手动触发 watchdog，`alive()` 返回 running、不误杀、pid 不变。修复后下一轮异常会在 watchdog.log 明确显示「上一轮无退出码…按异常退出计一次」，可直接区分正常结束与被杀。
+
+**教训**：「没有退出码」不等于「没跑过」。判首次要用独立的启动哨兵（laststart），不能靠退出码文件是否存在。

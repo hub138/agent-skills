@@ -164,6 +164,7 @@ brief.md / 粘贴文本 → intake（同日多期用 slot；解析入账 + 原�
 | 雷达台账 | `radar/state/radar.db` | 否 |
 | 雷达审计流 | `radar/state/audit.jsonl` | 否 |
 | 雷达 clone 缓存 | `radar/state/cache/`（`RADAR_CACHE` 可覆盖） | 否 |
+| tech-radar 完整仓库 | `skills/tech-radar/`（简报生成侧，用户项目，只读） | 否（独立 git 仓库） |
 | 雷达简报原文 | `（原文，公开版略）` | 是 |
 | 雷达分析/落地 | `radar/analyses/`、`radar/applied/` | 是 |
 | 雷达台账渲染 | `radar/LEDGER.md` | 是（自动生成，勿手改） |

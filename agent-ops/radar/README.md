@@ -243,6 +243,9 @@ python3 scripts/radar_cli.py clean --dry-run   # 只报告不删
 | `radar_cli.py ledger` | 重新渲染 `radar/LEDGER.md` |
 | `radar_cli.py events --kind claim` | 查领取者 / 覆盖事件等审计流 |
 | `radar_cli.py check-new --from-dir <tech-radar>` | 拉上游更新：新简报自动 intake+分诊+落通知（幂等） |
+
+tech-radar 完整仓库位于 skills 目录下（`skills/tech-radar/`，git 远端指向内网）。
+mac 侧生成简报后 push，本机 check-new 每天两次（8:00/13:00 cron）pull 并按内容指纹入账。
 | `radar_cli.py status [--json]` | 汇总 + 磁盘 + 最近事件 |
 | `radar_cli.py clean [--days N] [--max-mb N] [--dry-run]` | 清理工作区 |
 

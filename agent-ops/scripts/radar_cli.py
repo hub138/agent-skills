@@ -158,6 +158,14 @@ def cmd_intake(args) -> int:
             conn.commit()
         res["raw_path"] = store.rel(raw_out)
         res["slot"] = b["slot"]
+        # 入账即分诊（与 check-new 一致）：否则 route=None，用户看 list 是「-」，
+        # 且未分诊条目会被 next 领走，绕过分诊的 skip 拦截。
+        routes = {"deep": 0, "brief": 0, "skip": 0}
+        for row in conn.execute("SELECT id FROM candidates WHERE brief_id=?",
+                                (res["brief_id"],)):
+            info = store.triage_candidate(conn, row["id"])
+            routes[info["route"]] += 1
+        res["routes"] = routes
         results.append(res)
     _out({"batches": len(results), "results": results}
          if len(results) != 1 else results[0], args.json)

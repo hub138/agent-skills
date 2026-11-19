@@ -53,9 +53,13 @@ wlog() { echo "[$(ts)] $*" >> "$watchlog"; }
 }
 
 alive() {
-  local pid="$1"
+  local pid="$1" st
   [ -n "$pid" ] || return 1
-  kill -0 "$pid" 2>/dev/null
+  kill -0 "$pid" 2>/dev/null || return 1
+  # 僵尸进程 kill -0 仍返回成功，但它已经不能工作；不排掉会导致 watchdog 永远不续接
+  st="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ')"
+  [ -n "$st" ] && [ "${st#Z}" != "$st" ] && return 1
+  return 0
 }
 
 # 杀进程组：wrapper 是 setsid 出来的组长，这样能带上它的子进程一起收掉
@@ -168,7 +172,20 @@ check_job() {
   # ---- 根据上次退出码，决定用哪条提示词 ----
   local finished=0
   if [ -z "$ec" ]; then
-    :   # 这个任务从来没跑过，本次是首次拉起，不算失败重试
+    # 拉起时会 rm -f exitfile，wrapper 正常退出会写回退出码。若上次确实拉起过
+    # （laststart 有值）却拿不到退出码，说明 wrapper 连同整个进程组被强杀
+    # （SIGKILL / OOM / 被别的看门脚本 kill_group），不是「首次拉起」。
+    # 旧逻辑一律不算失败重试，导致 restarts 恒为 0、熔断与告警形同虚设，
+    # 日志里也看不出异常（2026-11-19 intro-chief 连续 15 轮被强杀才定位到）。
+    local prevstart
+    prevstart="$(cat "$startfile" 2>/dev/null || echo 0)"
+    case "$prevstart" in ''|*[!0-9]*) prevstart=0 ;; esac
+    if [ "$prevstart" -gt 0 ]; then
+      wlog "$job: 上一轮无退出码（wrapper 被强杀/OOM，laststart=$prevstart），按异常退出计一次"
+      cnt=$(( cnt + 1 ))
+    else
+      :   # 真正首次拉起：从没跑过，不算失败重试
+    fi
   elif [ "$JOB_PROMPT_COUNT" -eq 0 ]; then
     # 没配提示词：永远用兜底指令，直到完成标记出现或达到重启上限
     if [ "$ec" = "0" ]; then cnt=0; rm -f "$STATE_DIR/$job.NEED-ATTENTION"; else cnt=$(( cnt + 1 )); fi
@@ -276,13 +293,25 @@ check_job() {
       gen=$(( (n - 1) / JOB_SESSION_ROLLOVER ))
       [ "$gen" -gt 0 ] && sid="${JOB_SESSION_ID}-r${gen}"
     fi
+    # --resume-create-missing 只有新版 CLI 有；稳定版 2.132.0 遇到它直接报 unknown option 秒退
+    # (2026-11-19 实测)。不支持时按会话文件是否存在二选一：存在就 --resume，不存在就 --session-id 新建。
+    local resume_args=(--resume "$sid" --resume-create-missing)
+    if ! timeout 30 "$CB_BIN" --help 2>/dev/null | grep -q -- '--resume-create-missing'; then
+      if ls "$HOME"/.codebuddy/projects/*/"$sid".jsonl >/dev/null 2>&1; then
+        resume_args=(--resume "$sid")
+      else
+        resume_args=(--session-id "$sid")
+      fi
+    fi
+    # "--" 必须保留:CLI 2.177.x 会把带换行的长 prompt 里以 "-" 开头的行当成选项,
+    #   报 unknown option 直接退出(exit 1, 2 秒秒退)。"--" 之后一律按位置参数处理。2026-10-28 实证。
+    # 注释不能夹在续行符 "\" 之间:2026-11-19 实测夹在中间时 bash 把注释当命令结尾,
+    #   ">> runlog 2>&1 &" 变成单独的空命令,拉起变前台阻塞、run.log 不写、锁被占到 timeout。
     setsid nohup bash -c 'echo $$ > "$PIDFILE"; "$@"; echo $? > "$EXITFILE"' _ \
       "$CB_BIN" -p --port 0 \
-      --resume "$sid" --resume-create-missing \
+      "${resume_args[@]}" \
       "${model_args[@]}" $JOB_EXTRA_ARGS \
       -- "$prompt" \
-      # ↑ "--" 必须保留:CLI 2.177.x 会把带换行的长 prompt 里以 "-" 开头的行当成选项,
-      #   报 unknown option 直接退出(exit 1, 2 秒秒退)。"--" 之后一律按位置参数处理。2026-10-28 实证。
       >> "$runlog" 2>&1 &
   )
   sleep 2

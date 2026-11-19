@@ -383,6 +383,7 @@ python3 -c "import re,subprocess,io; ... set(re.findall(r'^def (\w+)', src, re.M
 触发词：用户说「看看这期雷达有什么可借鉴」「把这个仓库分析一下能不能抄」时走本节。
 上游更新自动感知：`radar_cli.py check-new --from-dir <tech-radar 本地仓库>`
 （pull → 新简报自动 intake+分诊 → 通知写 `radar/state/notifications.jsonl`，重跑幂等）。
+tech-radar 完整仓库在 `skills/tech-radar/`（用户的项目，只读，生成侧在 mac）。
 
 - 入口：`python3 scripts/radar_cli.py --help`。完整说明 `radar/README.md`，
   结构解剖 `ANATOMY.md` 第 8 节，开发规范 `GOVERNANCE.md`。
