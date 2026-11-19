@@ -283,6 +283,7 @@ def cmd_applied(args) -> int:
         conn, args.candidate, files=args.files or [],
         summary=args.summary, rationale=args.rationale,
         diffstat=args.diffstat, gate=json.loads(args.tests) if args.tests else {},
+        review=json.loads(args.review) if args.review else {},
         commit_sha=args.commit)
     _out({"candidate": args.candidate, "files": args.files,
           "commit": args.commit}, args.json)
@@ -486,6 +487,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rationale", required=True)
     p.add_argument("--diffstat", default="")
     p.add_argument("--tests", help='JSON，如 {"pytest":"68 passed"}')
+    p.add_argument("--review", help='AI 双审 JSON，如 {"pre":"做：补真实缺口","post":"对：最小改动，回滚已验证"}')
     p.add_argument("--commit", default="")
     p.set_defaults(func=cmd_applied)
 

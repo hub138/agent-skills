@@ -71,6 +71,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     brief_cols = {r[1] for r in conn.execute("PRAGMA table_info(briefs)")}
     if "slot" not in brief_cols:
         conn.execute("ALTER TABLE briefs ADD COLUMN slot TEXT NOT NULL DEFAULT ''")
+    ch_cols = {r[1] for r in conn.execute("PRAGMA table_info(changes)")}
+    if "review" not in ch_cols:
+        conn.execute("ALTER TABLE changes ADD COLUMN review TEXT NOT NULL DEFAULT '{}'")
     cand_cols = {r[1] for r in conn.execute("PRAGMA table_info(candidates)")}
     for col, decl in (("triage_score", "INTEGER"),
                       ("triage_route", "TEXT"),
@@ -547,6 +550,7 @@ def record_analysis(conn: sqlite3.Connection, candidate_id: int, *,
 def record_change(conn: sqlite3.Connection, candidate_id: int, *,
                   files: list[str], summary: str, rationale: str,
                   diffstat: str = "", gate: dict | None = None,
+                  review: dict | None = None,
                   commit_sha: str = "") -> None:
     ts = now_str()
     detail = {"candidate_id": candidate_id, "files": files,
@@ -554,9 +558,10 @@ def record_change(conn: sqlite3.Connection, candidate_id: int, *,
     with tx(conn):
         conn.execute(
             "INSERT INTO changes(candidate_id,files,summary,rationale,diffstat,"
-            "gate,commit_sha,applied_at) VALUES(?,?,?,?,?,?,?,?)",
+            "gate,review,commit_sha,applied_at) VALUES(?,?,?,?,?,?,?,?,?)",
             (candidate_id, json.dumps(files, ensure_ascii=False), summary,
              rationale, diffstat, json.dumps(gate or {}, ensure_ascii=False),
+             json.dumps(review or {}, ensure_ascii=False),
              commit_sha, ts))
         _set_status_row(conn, candidate_id, "applied", ts=ts)
         _event_row(conn, "applied", detail, ts)

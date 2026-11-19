@@ -69,6 +69,10 @@ python3 scripts/radar_cli.py list --route deep  # 只看值得深读的
 
 ### Step 2 · 深读 deep 条目
 
+**事前审**：每条深读前先答「要不要读」（分诊判错时 `--force` 复核，record 留
+`triage_override`）。
+
+
 按类型走对应任务书，**一条一个会话/上下文**，避免互相污染：
 
 - 仓库：`radar/prompts/analyze-repo.md`
@@ -85,7 +89,13 @@ radar/analyses/<简报日期>/<两位序号>-<slug>.md
 
 slug 用条目关键词的英文/拼音短横线形式，例如 `loopforge-sop-gate`。
 
-### Step 3 · 判定并入账
+### Step 3 · 二审（做的对不对）
+
+报告写完、record 之前，按 `radar/prompts/review-verdict.md` 过四问
+（证据支撑 / 反面检查 / 结论强度 / 未实测声明），二审结论追加到报告尾部。
+**adapt/adopt 必审**，二审与一审不同上下文；verdict 被推翻也是合格产出。
+
+### Step 4 · 判定并入账
 
 ```bash
 python3 scripts/radar_cli.py record \

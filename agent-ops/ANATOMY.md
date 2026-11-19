@@ -289,6 +289,7 @@ radar/LEDGER.md                    台账渲染（自动生成）
 | `apply-borrowing.md` | 决定落地后 | 最小改动 + 测试 + 门禁 + 回滚 |
 | `intake-fallback.md` | 解析失败 | 严格 JSON（不编 URL） |
 | `anatomy-review.md` | 任何 P1+ 变更后 | 逐节判定表 + 重写章节 + `anatomy_check` OK |
+| `review-verdict.md` | 深读报告 record 前 | 二审四问 + 结论修正（adapt/adopt 必审） |
 
 提示词是任务书，不是背景介绍：每份都带输入、步骤、证据纪律、反模式、完成判据。
 

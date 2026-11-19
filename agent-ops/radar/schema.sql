@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS changes (
   rationale    TEXT NOT NULL,
   diffstat     TEXT NOT NULL DEFAULT '',
   gate         TEXT NOT NULL DEFAULT '{}',    -- JSON: {pytest, doccheck, smoke}
+  review       TEXT NOT NULL DEFAULT '{}',   -- JSON: {pre, post}  AI 事前/事后审
   commit_sha   TEXT NOT NULL DEFAULT '',
   applied_at   TEXT NOT NULL
 );
