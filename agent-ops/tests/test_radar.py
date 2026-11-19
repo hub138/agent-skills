@@ -418,7 +418,7 @@ def test_audit_stream_rotates_when_large(tmp_path, monkeypatch):
     monkeypatch.setenv("RADAR_HOME", str(tmp_path))
     big = tmp_path / "audit.jsonl"
     big.write_text("x" * (21 * 1048576), encoding="utf-8")
-    s._audit_file(s.now_str(), "rotate_test", {"a": 1})
+    store._audit_file(store.now_str(), "rotate_test", {"a": 1})
     assert list(tmp_path.glob("audit.*.jsonl")), "旧流应被归档"
     assert big.stat().st_size < 21 * 1048576
 
