@@ -411,3 +411,29 @@ def test_clean_skips_paths_in_use(tmp_path, monkeypatch):
     assert res["removed"] == []
     assert res["skipped"][0]["why"].startswith("仍有进程引用")
     assert target.exists()
+
+
+def test_audit_stream_rotates_when_large(tmp_path, monkeypatch):
+    """长期运行：append 流不能无限膨胀，超 20MB 自动归档。"""
+    monkeypatch.setenv("RADAR_HOME", str(tmp_path))
+    big = tmp_path / "audit.jsonl"
+    big.write_text("x" * (21 * 1048576), encoding="utf-8")
+    s._audit_file(s.now_str(), "rotate_test", {"a": 1})
+    assert list(tmp_path.glob("audit.*.jsonl")), "旧流应被归档"
+    assert big.stat().st_size < 21 * 1048576
+
+
+def test_check_new_bad_brief_does_not_block(tmp_path, monkeypatch, capsys):
+    """一份格式损坏的简报只损失自己，不拖垮同批后面的简报。"""
+    import radar_cli
+    repo = tmp_path / "tech-radar"
+    d = repo / "data" / "briefs"
+    d.mkdir(parents=True)
+    (d / "2026-11-18-brief.md").write_text("完全不是简报的乱码文本", encoding="utf-8")
+    (d / "2026-11-19-brief.md").write_text(BRIEF_TECH, encoding="utf-8")
+    monkeypatch.setenv("RADAR_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("RADAR_TECH_REPO", str(repo))
+    assert radar_cli.main(["check-new", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["new_briefs"] == 1, "坏简报跳过后，好简报必须正常入账"
+    assert any("解析失败跳过" in n for n in out["notes"])

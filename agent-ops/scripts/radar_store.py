@@ -22,6 +22,7 @@ import os
 import re
 import socket
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -117,9 +118,21 @@ def _event_row(conn: sqlite3.Connection, kind: str, detail: dict,
     return ts
 
 
+def _rotate_if_large(path: Path, max_mb: int = 20) -> None:
+    """append 流超过上限就按日期归档，防止数年运行后无限膨胀。"""
+    try:
+        if path.exists() and path.stat().st_size > max_mb * 1048576:
+            arch = path.with_suffix(f".{time.strftime('%Y%m%d')}.jsonl")
+            if not arch.exists():
+                path.replace(arch)
+    except OSError:
+        pass
+
+
 def _audit_file(ts: str, kind: str, detail: dict) -> None:
     """事务提交成功后追加审计流；best effort，失败不影响已提交的事实。"""
     log = state_root() / "audit.jsonl"
+    _rotate_if_large(log)
     try:
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("a", encoding="utf-8") as fh:

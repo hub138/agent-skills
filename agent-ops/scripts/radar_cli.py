@@ -321,8 +321,14 @@ def cmd_check_new(args) -> int:
         if sha in known:
             continue  # 已入账（按内容指纹：换文件名/换目录都不重复）
         date = _date_from_name(f)
-        res = store.ingest_brief(conn, text, brief_date=date, slot=args.slot,
-                                 source="tech-radar", source_path=str(f))
+        try:
+            res = store.ingest_brief(conn, text, brief_date=date, slot=args.slot,
+                                     source="tech-radar", source_path=str(f))
+        except ValueError as exc:
+            # 一份格式损坏的简报不许阻塞同一批后面的简报（长期运行：上游
+            # 格式再变时，坏文件只损失自己，不拖垮整条流水线）
+            notes.append(f"{f.name} 解析失败跳过：{exc}")
+            continue
         raw_out = store.RADAR_DIR / "intake" / f"{date}-{res['brief_id']}.md"
         if not res["duplicate"]:
             raw_out.parent.mkdir(parents=True, exist_ok=True)
@@ -346,6 +352,7 @@ def cmd_check_new(args) -> int:
                       % routes["deep"]) if routes["deep"] else "本期无 deep 新条目"}
     try:
         nf = store.state_root() / "notifications.jsonl"
+        store._rotate_if_large(nf)
         nf.parent.mkdir(parents=True, exist_ok=True)
         with nf.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(notif, ensure_ascii=False) + "\n")
