@@ -3,6 +3,27 @@
 > 每次提交一段，倒序。格式见 `GOVERNANCE.md` 5.1：
 > 改了什么 / 为什么 / 门禁 / 回滚。不写「优化了一下」。
 
+## 2026-11-20 · 静态专项复审：撤回完整交付结论（本轮未提交）
+
+- 改了什么：仅更正 SKILL.md、README.md、研究Loop实施进展.md 的能力与验收描述，保留历史实现记录；未修改运行脚本。
+- 为什么：当前代码可复现真实 CLI trial 参数错误、候选偷换、手填隔离 pass、空 final_gate 和错留出组通过；自动探索、预算、子 Loop、few-shot、用例/rubric 流程未接通，不能以现有单测全绿声明全部完成。
+- 验证：原代码全量 pytest 172 passed、2 warnings；doccheck/anatomy_check 通过，但反向复现仍暴露上述问题。两名后台只读审计员分别核验静态门禁和需求覆盖；结论详见实施进展第 5 节。
+- 边界：本轮只审静态，不运行动态复现、不发通知、不启动正式课题、不提交或发布。代码问题尚未修复，不再要求提供参考提示词中的固定 130/123 数据。
+- 回退：本轮仅有文档改动，无运行状态迁移；若修正审计结论须追加新的证据，不抹去历史。
+
+## 2026-11-20 · 研究 Loop（eval-loop）：实验驱动迭代优化层
+
+- 改了什么：新增 scripts/research_loop/（store/protocol/metrics/experiment/
+  evalset/leak/ideas/adapters/report）与 scripts/loopctl.py；测试
+  tests/test_research_*.py；方案《通用研究迭代Loop实施方案.md》与
+  实施进展《研究Loop实施进展.md》；toy demo examples/toy/（端到端真实跑通）。
+- 为什么：补齐「评估驱动优化」层——冻结评测协议、单机制对照、双批复验、
+  连续无收益换向、留出集封存/开封、隔离探测、逐轮可复算账本。
+- 门禁：pytest 全绿（含 test_research_* 23+48+7 项）；doccheck OK；
+  pyflakes undefined=0；toy demo 端到端（baseline→trial→verify→expand→
+  lock-final→leak→final→adopt，holdout 64/64，报告四件套生成）；报告页面浏览器截图验收。
+- 回滚：git revert 本提交；运行数据在 RESEARCH_LOOP_HOME（不受回滚影响）。
+
 ## 2026-11-18 · 自动感知上游更新 + foundation 全量盘点（39 模块）
 
 ### 新增

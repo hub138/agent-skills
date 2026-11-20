@@ -1,0 +1,13 @@
+{"identity": {"schema_version": "1", "project_id": "toy-demo", "objective_version": "v1", "goal": "关键词检测器召回率最大化"},
+ "metrics": {"primary_metric": {"metric_id": "recall", "direction": "maximize", "threshold": 0.9, "comparison": "gt", "unit": "risk_point"},
+             "guard_metrics": [{"metric_id": "precision", "direction": "maximize"}],
+             "non_inferiority_tolerance": 0},
+ "data": {"manifest": "cases.jsonl", "version": "toy-v1"},
+ "evaluator": {"adapter_id": "keyword-exact", "judge_version": "exact-v1"},
+ "candidate": {"allowed_paths": ["examples/toy/candidates/*/KEYWORDS"]},
+ "explore": {"categories": ["knowledge_context", "prompt_engineering", "case_correctness"],
+             "dev_batch_size": 8, "stall_limit": 2},
+ "budget": {"max_rounds": 5},
+ "isolation": {"mode": "full"},
+ "completion": {"final_gate": [{"metric_id": "recall", "threshold": 0.9, "comparison": "gt"},
+                               {"metric_id": "precision", "threshold": 0.5, "comparison": "gt"}]}}

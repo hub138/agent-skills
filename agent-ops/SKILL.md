@@ -35,6 +35,17 @@ python3 scripts/env_check.py --fix
 全绿退出码 0；有缺失且无法自动装退出码 1（此时不要派单）。
 安装方式出处：内部安装文档（knot / codebuddy）。
 
+## 研究 Loop（eval-loop）：实验驱动的迭代优化（2026-11-20 新增）
+
+触发词：用户说「跑一个研究优化 Loop」「按测试集迭代」「实验对照/基线/留出集」时走本节。
+方案与实施任务书：`通用研究迭代Loop实施方案.md`；进展：`研究Loop实施进展.md`。
+
+入口：`python3 scripts/loopctl.py --project <project.json> <子命令>`。
+子命令：init/doctor/status/record/report/baseline/propose/trial/verify/expand/
+lock-final/final/adopt/rollback/idea/explore/child/budget。
+目标纪律：单机制变更、同批对照、双批复验、连续无净收益换向、留出集先封存后开封、done≠实验成功。
+**当前验收未通过（2026-11-20 静态复审）**：上述是目标契约，不代表全部已经可靠实现。trial/verify/expand 参数接线、候选与数据摘要绑定、真实隔离、自动派发与共享预算仍有缺口，详见 `研究Loop实施进展.md` 第 5 节。不得把手填指标/隔离 pass 的演示报告当成真实研究或最终盲测通过。当前仅审静态，不自动扩展到动态验证或启动生产任务。
+
 ## 模型安排（先看这一节，2026-11-12 定稿）
 
 **只有两个模型角色：一个干活、一个监督。两个都可配置，默认都是 free-model。** small-model 偏弱，默认不参与；想用要显式配。
@@ -249,6 +260,19 @@ KNOT = '<knot-cli 路径>'
 - **全局统计三坑**（会把 0 次限流误算成 640 次）：`grep 429` 命中时间戳毫秒与文件名；`限流` 命中脚本文档正文；`IsolateScheduler wake` 是心跳不是请求。只数带 `request_id`/`model` 的行。
 
 按 `requestID`/`sessionID` 反查的命令内联在 `ai-session-forensics.md`；闸门作用域边界见 `knot-limits.md` 第九节。
+
+## 五点五、工具形态选择规则（2026-11-20 实战教训，选错组件=质量崩塌）
+
+**调用 knot/codebuddy 前，先按任务性质选形态——这一步选错，后面的并发调优全部白做：**
+
+| 任务性质 | 正确形态 | 为什么 |
+|---|---|---|
+| 判定/分类/打标（prompt 里给足材料，无需跑命令）| `knot_batch.py` 无工具批量 | 吞吐优先，材料已喂进 prompt |
+| **取证/验证/深潜（需要模型自己跑 git/bash 交叉验证）** | **必须带工具**：`knot-cli chat`（实测 glm-5.3 可执行 git）或 `codebuddy -p`（bypassPermissions）| 无工具形态下模型只能「看文本猜」——深潜类任务实测 0/13 vs 带工具 7/15 |
+
+**实战案例（2026-11-20 引入归因深潜）**：同一批「找引入 commit」任务，先错误地用了 knot_batch 无工具形态（模型只看 diff 猜，检索词是分析性词汇，机械验证 0/13 命中）；换 knot-cli chat 带工具形态（模型自己跑 git log -S/blame 交叉验证）后 7/15 找回，且每条带 git 证据链。**根因：把「需要工具的任务」塞进了「无工具批处理组件」——组件选择错误被并发调优掩盖。**
+
+**判断口诀**：任务里模型需要「跑命令看结果再决定下一步」→ 带工具；材料全部可以在 prompt 里给齐 → 无工具批量。
 
 ## 六、批量调用：直接用 `knot_batch.py`（2026-11-12 新增）
 

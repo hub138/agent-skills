@@ -89,6 +89,7 @@ agent-ops/
 | 脚本 | 职责 | 关键约束 |
 |---|---|---|
 | `taskctl.py` | SQLite 任务队列：add/plan/list/stats/brief/history/suspend/resume/daemon/tick | 租约 `lease_until` + `BEGIN IMMEDIATE` 原子抢占 |
+| `loopctl.py` | 研究 Loop 唯一 CLI：init/doctor/status/record/report/baseline/propose/trial/verify/expand/lock-final/final/adopt/rollback/idea/explore/child/budget | 全部子命令 argv 参数化；RESEARCH_LOOP_HOME 运行根；晋级走机器门禁 |
 | `env_check.py` | 环境自检与自动安装：node/codebuddy/knot-cli 三件套检测；--fix 自动 npm 装 codebuddy、KNOT_TOKEN 自动装 knot | 安装方式出处 iwiki 4016921090/4017255480；派单前必跑，退出码 0=就绪 |
 | `agentctl.py` | 交互式派发单个 CLI agent：dispatch/resume/send/status/watch | 二进制走 `resolve_bin`，模型走 `model_policy` |
 | `manager.py` | 管理者：读快照 → 模型决策 → 执行/写 guidance | 决策必须留痕；解析失败不动 |
@@ -163,6 +164,8 @@ brief.md / 粘贴文本 → intake（同日多期用 slot；解析入账 + 原�
 | agentctl 配置/日志 | `~/.codebuddy/watchdog/`（`WATCHDOG_HOME` 可覆盖） | 否 |
 | 任务进度/结果 | 每个任务工作目录的 `progress.md`、`result.json` | 视项目 |
 | 雷达台账 | `radar/state/radar.db` | 否 |
+| 研究 Loop 状态 | `RESEARCH_LOOP_HOME/<project_id>/state/research.db` | 否 |
+| 研究 Loop 证据/报告 | `RESEARCH_LOOP_HOME/<project_id>/{experiments,reports}/` | 否 |
 | 雷达审计流 | `radar/state/audit.jsonl` | 否 |
 | 雷达 clone 缓存 | `radar/state/cache/`（`RADAR_CACHE` 可覆盖） | 否 |
 | tech-radar 完整仓库 | `skills/tech-radar/`（简报生成侧，用户项目，只读） | 否（独立 git 仓库） |
@@ -186,7 +189,11 @@ brief.md / 粘贴文本 → intake（同日多期用 slot；解析入账 + 原�
 | `scripts/manager.py` | `tests/test_manager.py`；memory.md 第十节；SKILL.md 监督段 | 决策 JSON 解析失败时不误杀；guidance 注入下一轮 |
 | `scripts/model_policy.py` | `model-catalog.md`；SKILL.md 模型安排；`tests/test_model_policy.py` | 新增模型必须实测可调通，不按 `--help` 列表 |
 | `scripts/platform_util.py` | 所有调用点（agentctl/taskctl/manager/deadman） | `pytest tests/test_platform_util.py`；macOS 分支不读 /proc |
-| `templates/tasks/*.md` | `doccheck` 要求 `_done-contract.md` 出现在 SKILL.md；`render_prompt` 自动附加契约 | `plan --goal` 真实渲染一次：占位符全替换、四问出现在末尾 |
+| `templates/tasks/*.md` | `doccheck` 要求 `_done-contract.md` 出现在 SKILL.md；`render_prompt` 自动附加契约 |
+| `templates/tasks/research-propose.md` | 研究 Loop 提案模板：单机制假设、falsify_plan、禁读留出 | |
+| `templates/tasks/research-implement.md` | 研究 Loop 实施模板：候选工作区、allowed_paths 边界、result 契约 | |
+| `templates/tasks/research-verify.md` | 研究 Loop 独立复核模板：盲审裁决、禁读标签/历史得分 | |
+| `templates/tasks/research-report.md` | 研究 Loop 汇报模板：三段式，数字一律引用 report.py | | `plan --goal` 真实渲染一次：占位符全替换、四问出现在末尾 |
 | `scripts/deadman.py` | `templates/deadman.example.json`；cron 配置 | `deadman.py --config <真实配置> --dry-run`（若有） |
 | `scripts/doccheck.py` | 它自己检查的数字；内部调用 `anatomy_check` | 故意写错一个数字，确认退出码 1 |
 | `scripts/anatomy_check.py` | 它检查的章节/覆盖规则 | 故意删一节 ANATOMY，确认退出码 1 |

@@ -36,6 +36,19 @@
 架构与 [google/ax](https://github.com/google/ax)（Google 的 agent 编排运行时）同构：
 状态进数据库、轮询调度、任务不可变、原文留盘——它是集群级，本 skill 是单人可维护的单机形态。
 
+## 环境自动检测与安装（一行搞定）
+
+换新机器/新环境，派单前先跑一次——缺什么装什么：
+
+```bash
+python3 scripts/env_check.py --fix
+```
+
+- 检测三件套：**node≥18 / codebuddy CLI / knot-cli**（多候选路径 + nvm 扫描 + PATH 容错，cron 干净环境也能检对）
+- codebuddy 缺 → 自动 `npm install -g @tencent-ai/codebuddy-code`（腾讯镜像）
+- knot-cli 缺 → 需要个人 token（内网 Knot 平台「设置→Token」页申请），`export KNOT_TOKEN=<token>` 重跑 --fix 自动执行官方 install.sh
+- 全绿退出码 0（JSON 输出含每项的路径/版本），有缺失无法自动装退出码 1（此时不要派单）
+
 ## 5 分钟上手
 
 ```bash
@@ -99,6 +112,18 @@ python3 $T plan --goal "找出上周发版后偶发 502 的原因，给出可复
 会在只差一次文件拷贝的状态下空转 3 小时（见 `FIELD-NOTES.md` 第 31 条）。
 模板里已经内置了「讲因果 / 完成判据 / 降级也是合格交付 / 别无限自检」的引导，
 **人给目标、AI 拆任务、AI 自己判断收工**，这条链路是默认行为，不需要额外参数。
+
+## 研究 Loop（实验驱动优化，当前验收未通过）
+
+2026-11-20 静态复审发现：目前有账本、统计和部分实验函数，但自动研究循环、真实隔离与冻结、参数接线仍有缺口。下列为辅助入口，不代表端到端可用；缺口及复现记录见 `研究Loop实施进展.md` 第 5 节。`doctor` 不等于模型验活，`init` 写协议副本不等于不可篡改冻结。
+
+```bash
+python3 scripts/loopctl.py --project <project.json> init   # 写协议副本并建运行目录
+python3 scripts/loopctl.py --project <project.json> doctor # 检查协议字段，不验证模型可用性
+python3 scripts/loopctl.py --project <project.json> status # 当前相位/最佳
+python3 scripts/loopctl.py --project <project.json> report # STATUS/CHANGELOG/REPORT/HTML
+```
+方案详见 `通用研究迭代Loop实施方案.md`；探索策略与纪律见 SKILL.md 研究 Loop 节。
 
 ## 命令速查
 
