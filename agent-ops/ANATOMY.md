@@ -89,6 +89,7 @@ agent-ops/
 | 脚本 | 职责 | 关键约束 |
 |---|---|---|
 | `taskctl.py` | SQLite 任务队列：add/plan/list/stats/brief/history/suspend/resume/daemon/tick | 租约 `lease_until` + `BEGIN IMMEDIATE` 原子抢占 |
+| `env_check.py` | 环境自检与自动安装：node/codebuddy/knot-cli 三件套检测；--fix 自动 npm 装 codebuddy、KNOT_TOKEN 自动装 knot | 安装方式出处 iwiki 4016921090/4017255480；派单前必跑，退出码 0=就绪 |
 | `agentctl.py` | 交互式派发单个 CLI agent：dispatch/resume/send/status/watch | 二进制走 `resolve_bin`，模型走 `model_policy` |
 | `manager.py` | 管理者：读快照 → 模型决策 → 执行/写 guidance | 决策必须留痕；解析失败不动 |
 | `supervise_agents.py` | 监督后端：agentctl 会话 | 与 supervisor 同构，共用快照协议 |
@@ -165,6 +166,7 @@ brief.md / 粘贴文本 → intake（同日多期用 slot；解析入账 + 原�
 | 雷达审计流 | `radar/state/audit.jsonl` | 否 |
 | 雷达 clone 缓存 | `radar/state/cache/`（`RADAR_CACHE` 可覆盖） | 否 |
 | tech-radar 完整仓库 | `skills/tech-radar/`（简报生成侧，用户项目，只读） | 否（独立 git 仓库） |
+| tech-radar 专项监控（topic-watch） | `tech-radar/data/watch/`——CR/静态分析工具调研，**本 skill 不消费**（契约：check-new 只扫 briefs） | 否 |
 | 雷达简报原文 | `（原文，公开版略）` | 是 |
 | 雷达分析/落地 | `radar/analyses/`、`radar/applied/` | 是 |
 | 雷达台账渲染 | `radar/LEDGER.md` | 是（自动生成，勿手改） |

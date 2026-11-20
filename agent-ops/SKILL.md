@@ -17,6 +17,24 @@ description: 本机 AI agent 编排与模型运维。当一个 agent 要调度�
 > 本机实测 2026-11-12。**免费口径**：codebuddy 侧**只有 hy 系列 x0.00**（`free-model` / `free-model-flash` / `small-model`，另有特殊用途 `echo`）；knot 侧 `free-model` / `small-model` / `free-model-preview` 实测扣费 0。不免费但**足够便宜**的可用档位见 `model-catalog.md`（`glm-5.3-flash-ioa` x0.08、`deepseek-v4.1-flash` x0.11 等）。
 > 所有 ID 均以**实测能否调通**为准，不以 `--help` 里的列表为准（help 列的主要是付费 claude/gemini/gpt 系列）。
 
+## 环境自动检测与自动安装（派单前必跑，2026-11-20 新增）
+
+任何派单/dispatch/taskctl 前，先跑一次：
+
+```bash
+python3 scripts/env_check.py --fix
+```
+
+行为：检测 **node≥18 / codebuddy CLI / knot-cli** 三件套——
+- 都在 → 输出全绿 JSON，直接派单；
+- codebuddy 缺 → 自动 `npm install -g @tencent-ai/codebuddy-code`（腾讯镜像）；
+- knot-cli 缺 → 需要 Knot 个人 token（内部 Knot 平台「设置→Token」页申请），
+  `export KNOT_TOKEN=<token>` 后重跑 --fix 自动执行官方 install.sh；
+- node 缺 → 输出安装指引（无法全自动，装好重跑）。
+
+全绿退出码 0；有缺失且无法自动装退出码 1（此时不要派单）。
+安装方式出处：内部安装文档（knot / codebuddy）。
+
 ## 模型安排（先看这一节，2026-11-12 定稿）
 
 **只有两个模型角色：一个干活、一个监督。两个都可配置，默认都是 free-model。** small-model 偏弱，默认不参与；想用要显式配。

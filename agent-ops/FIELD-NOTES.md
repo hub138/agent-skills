@@ -1146,3 +1146,26 @@ if [ -z "$ec" ]; then
 **验证**：`bash -n`、`pytest tests/` 99 项通过；在任务存活时手动触发 watchdog，`alive()` 返回 running、不误杀、pid 不变。修复后下一轮异常会在 watchdog.log 明确显示「上一轮无退出码…按异常退出计一次」，可直接区分正常结束与被杀。
 
 **教训**：「没有退出码」不等于「没跑过」。判首次要用独立的启动哨兵（laststart），不能靠退出码文件是否存在。
+
+## 34. blocked 任务 retry 后 task_finish 不同步 DB 状态（2026-11-19，待修）
+
+现象：blocked 任务 `retry`（blocked→queued→spawn attempt 2）→ 子 agent 完成 result=done →
+`finished_by_result` 事件已记，但 tasks.status 仍显示 blocked、attempts 显示旧值。
+影响：双 AI 协作里"评审 blocked → 材料就绪 → retry 续评"的常见节奏，完成后任务表状态错。
+待修：cmd_retry 对 blocked 的处理 + task_finish 的状态同步路径。
+临时口径：手工 `UPDATE tasks SET status='done'`（本轮已执行）。
+
+## 35. crontab 单行测试覆盖了完整 crontab（2026-11-20，事故）
+
+现象：为定位「bad command」做单行安装实验（`crontab /tmp/t2.cron`，文件只有 1 行）——
+**直接覆盖了 root 的完整 crontab（217 行 → 1 行）**，且无备份。
+恢复：stock-guardian 有 crontab 生成脚本（install-runtime-cron.sh）+ 会话历史里的行，
+重建 10 行核心任务（sg 5 / taskctl tick / serve / topic-watch 双批 / checknew）。
+**可能仍有未恢复的行**（未见过的部分）——已如实告知用户核对。
+根因与纪律：
+1. **对 crontab 任何写操作前必须先备份**：`crontab -l > ~/cron-backups/$(date +%s).cron`；
+2. 语法实验用 `crontab -T <file>` 类 dry-run（或先备份）；本机 cron 对 **6 字段**（多一个 *）
+   报 bad command——**模板里手写 cron 行必须数字段**；
+3. 复杂逻辑一律写成脚本文件（checknew-cron.sh 模式），cron 行保持最简；
+4. 各项目的 cron 行应「定义在项目里」（stock-guardian 模式），丢失可重建——
+   散装手写的行丢一次就没。

@@ -868,8 +868,12 @@ def cmd_tick(args) -> int:
                                            payload.get("evidence") or [])[:5]:
                             event(conn, r["id"], "evidence_warning",
                                   {"problem": _p})
+                        # WHERE status='running'：retry/spawn 与 finish 同 tick 竞态时，
+                        # 旧 worker 可能读到旧 result（实测 blocked 覆盖 done）——
+                        # 只有仍持有 running 状态的任务才允许被 finish 覆盖
                         conn.execute(
-                            "UPDATE tasks SET status=?, result_json=?, ended_at=? WHERE id=?",
+                            "UPDATE tasks SET status=?, result_json=?, ended_at=? "
+                            "WHERE id=? AND status='running'",
                             (payload["status"], json.dumps(payload, ensure_ascii=False),
                              now(), r["id"]))
                         event(conn, r["id"], "finished_by_result")
